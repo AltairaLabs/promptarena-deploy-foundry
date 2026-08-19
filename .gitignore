@@ -1,0 +1,39 @@
+# Local planning notes — not for publication
+docs/local-backlog/
+
+# Design/spec docs live in docs/local-backlog (gitignored); never commit them,
+# including the brainstorming skill default path.
+docs/superpowers/
+
+# subagent-driven-development scratch (ledger, briefs, reports, diffs)
+.superpowers/
+
+# Build output
+/promptarena-deploy-foundry
+/foundry-runtime
+/dist/
+
+# Go
+*.test
+*.out
+coverage.txt
+go.work
+go.work.sum
+
+# Packs written out during local runs; keep committed test fixtures.
+*.pack.json
+!cmd/foundry-runtime/testdata/*.pack.json
+
+# Local tooling / secrets
+.mcp.json
+.env
+
+# Docs site
+docs/node_modules/
+docs/dist/
+docs/.astro/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

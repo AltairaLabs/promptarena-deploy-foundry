@@ -1,0 +1,103 @@
+name: Update PromptKit Dependency
+
+on:
+  repository_dispatch:
+    types: [promptkit-release]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    name: Update PromptKit to ${{ github.event.client_payload.version }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        # Check out with the PAT so the branch push below is attributed to it
+        # rather than to GITHUB_TOKEN — see the note on "Create pull request".
+        token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+    - name: Set up Go
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Update go.mod
+      env:
+        VERSION: ${{ github.event.client_payload.version }}
+      run: |
+        echo "Updating PromptKit modules to $VERSION..."
+
+        # Bump every PromptKit module this repo may reference. `go mod tidy`
+        # below drops any that turn out to be unused.
+        for m in runtime pkg sdk; do
+          go mod edit -require="github.com/AltairaLabs/PromptKit/$m@$VERSION"
+          go mod edit -dropreplace="github.com/AltairaLabs/PromptKit/$m"
+        done
+
+        go mod tidy
+
+        echo "✓ Updated go.mod"
+
+    - name: Verify build
+      run: |
+        echo "Verifying build without replace directives..."
+        go build -o promptarena-deploy-foundry .
+        go build -o foundry-runtime ./cmd/foundry-runtime/
+        echo "✓ Build succeeded"
+
+    - name: Verify tests
+      run: |
+        echo "Running tests..."
+        go test ./... -v -race -count=1
+        echo "✓ Tests passed"
+
+    # The PAT is required, not a preference. GitHub deliberately does not start
+    # workflow runs for events raised by GITHUB_TOKEN (a recursion guard), so a
+    # PR opened with it never gets CI, its required checks never report, and it
+    # sits mergeable-but-BLOCKED forever. Opening the PR as a real user makes
+    # CI run normally.
+    - name: Create pull request
+      env:
+        VERSION: ${{ github.event.client_payload.version }}
+        GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      run: |
+        BRANCH="deps/promptkit-$VERSION"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        git checkout -b "$BRANCH"
+        git add -A
+        git commit -s -m "deps: update PromptKit to $VERSION
+
+        Drop replace directives — published modules are now available on
+        the Go proxy."
+
+        git push origin "$BRANCH"
+
+        # Unquoted delimiter, so $VERSION interpolates. With <<'PREOF' the body
+        # would render the literal string "$VERSION".
+        gh pr create \
+          --title "deps: update PromptKit to $VERSION" \
+          --body "$(cat <<PREOF
+        ## Summary
+
+        - Update the \`github.com/AltairaLabs/PromptKit/*\` modules to $VERSION
+        - Drop \`replace\` directives from \`go.mod\` (published modules available)
+
+        Triggered automatically by PromptKit release $VERSION.
+
+        ## Verification
+
+        - [x] \`go build\` passes for both the adapter and the runtime
+        - [x] \`go test ./... -race\` passes
+
+        🤖 Generated automatically by the update-deps workflow
+        PREOF
+        )"
+
+        echo "✓ Created PR for $BRANCH"

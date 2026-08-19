@@ -1,0 +1,59 @@
+# GoReleaser configuration for promptarena-deploy-foundry
+# See: https://goreleaser.com
+
+version: 2
+
+builds:
+  # Only the adapter is released here. cmd/foundry-runtime ships as a container
+  # image instead, published by .github/workflows/publish-runtime.yml when the
+  # release is published — a loose binary would not help anyone, since Foundry
+  # hosted agents pull an image from Azure Container Registry.
+  - id: promptarena-deploy-foundry
+    binary: promptarena-deploy-foundry
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/AltairaLabs/promptarena-deploy-foundry/internal/foundry.Version={{.Version}}
+      - -X github.com/AltairaLabs/promptarena-deploy-foundry/internal/foundry.Commit={{.Commit}}
+      - -X github.com/AltairaLabs/promptarena-deploy-foundry/internal/foundry.Date={{.Date}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  # Bare binary (no tar.gz) named to match exactly what the promptarena
+  # installer downloads: promptarena-deploy-foundry_<goos>_<goarch>.
+  # {{ .Os }}/{{ .Arch }} are the raw GOOS/GOARCH the installer computes via
+  # runtime.GOOS/runtime.GOARCH — no x86_64/title-case translation.
+  - id: default
+    formats: [binary]
+    name_template: "promptarena-deploy-foundry_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+release:
+  github:
+    owner: AltairaLabs
+    name: promptarena-deploy-foundry
+  draft: true
+  name_template: "promptarena-deploy-foundry {{.Version}}"

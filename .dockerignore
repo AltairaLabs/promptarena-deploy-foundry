@@ -1,0 +1,8 @@
+.git
+.github
+.githooks
+*_test.go
+foundry-runtime
+promptarena-deploy-foundry
+docs
+test
