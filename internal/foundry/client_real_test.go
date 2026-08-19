@@ -368,3 +368,68 @@ func selectionRules(t *testing.T, body map[string]any) []any {
 	}
 	return rules
 }
+
+// Foundry answers 404 for both "no such agent" and "no such project", so a
+// typo in project would otherwise read as agent drift and produce a confident
+// plan that can never apply. Verified against a real account: the body is
+// {"error":{"code":"ResourceNotFound","message":"The project does not exist."}}
+func TestRESTGetAgentDistinguishesAMissingProject(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{
+				"code":    "ResourceNotFound",
+				"message": "The project does not exist.",
+			},
+		})
+	})
+
+	_, err := c.GetAgent(context.Background(), "any")
+	if !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("err = %v, want ErrProjectNotFound", err)
+	}
+	if errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("err = %v, want a missing project not to read as a missing agent", err)
+	}
+}
+
+func TestRESTGetAgentMissingAgentStillReadsAsNotFound(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{
+				"code":    "ResourceNotFound",
+				"message": "The agent 'support-pack' was not found.",
+			},
+		})
+	})
+
+	_, err := c.GetAgent(context.Background(), "support-pack")
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("err = %v, want ErrAgentNotFound", err)
+	}
+}
+
+// An empty or unparseable 404 body must still mean "no such agent" rather
+// than failing the operation outright.
+func TestRESTGetAgentEmptyNotFoundBody(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, err := c.GetAgent(context.Background(), "a")
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("err = %v, want ErrAgentNotFound", err)
+	}
+}
+
+func TestRESTGetVersionDistinguishesAMissingProject(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{"message": "The project does not exist."},
+		})
+	})
+
+	_, err := c.GetVersion(context.Background(), "a", "1")
+	if !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("err = %v, want ErrProjectNotFound", err)
+	}
+}

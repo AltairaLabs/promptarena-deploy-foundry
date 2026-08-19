@@ -5,6 +5,7 @@ package foundry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -158,7 +159,10 @@ func (p *Provider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.P
 		return nil, err
 	}
 
-	prior, drift := p.verifiedPriorState(ctx, in.Cfg, in.Prior)
+	prior, drift, err := p.verifiedPriorState(ctx, in.Cfg, in.Prior)
+	if err != nil {
+		return nil, err
+	}
 
 	return buildPlan(&planInput{
 		AgentName:   in.AgentName,
@@ -182,41 +186,55 @@ func (p *Provider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.P
 // cannot run is worse than one carrying a caveat.
 func (p *Provider) verifiedPriorState(
 	ctx context.Context, cfg *Config, prior *State,
-) (verified *State, drift []string) {
+) (verified *State, drift []string, err error) {
 	// Nothing recorded means a first deploy: there is nothing to verify, and a
 	// dry run must stay fully offline.
 	if cfg.DryRun || prior.AgentName == "" {
-		return prior, nil
+		return prior, nil, nil
 	}
 
 	client, err := p.newControlPlaneClient(ctx, cfg)
 	if err != nil {
-		return prior, []string{fmt.Sprintf(
-			"prior state could not be verified against the control plane (%v); "+
-				"the plan assumes the recorded state is accurate", err)}
+		return prior, []string{unverifiedWarning(err)}, nil
 	}
 
 	agent, err := client.GetAgent(ctx, prior.AgentName)
 	if err != nil {
-		return driftedState(prior, err)
+		// A missing project is a configuration error, not drift: every
+		// operation against it will fail, so surface it rather than planning
+		// resources that can never be created.
+		if errors.Is(err, ErrProjectNotFound) {
+			// Wrap the sentinel rather than err: the API's own phrasing says
+			// less than this message does, and echoing both reads as a stutter.
+			return nil, nil, fmt.Errorf(
+				"project %q does not exist in account %q; check the deploy config: %w",
+				cfg.Project, cfg.Account, ErrProjectNotFound)
+		}
+		verified, drift = driftedState(prior, err)
+		return verified, drift, nil
 	}
 
 	if agent.ServedVersion != prior.ServedVersion {
 		return prior, []string{fmt.Sprintf(
 			"agent %q reports served version %q but state records %q; "+
 				"the endpoint may have been repointed outside this adapter",
-			prior.AgentName, agent.ServedVersion, prior.ServedVersion)}
+			prior.AgentName, agent.ServedVersion, prior.ServedVersion)}, nil
 	}
 
-	return prior, nil
+	return prior, nil, nil
+}
+
+// unverifiedWarning explains that a plan is based on unverified state.
+func unverifiedWarning(err error) string {
+	return fmt.Sprintf(
+		"prior state could not be verified against the control plane (%v); "+
+			"the plan assumes the recorded state is accurate", err)
 }
 
 // driftedState turns a failed lookup into corrected state plus an explanation.
 func driftedState(prior *State, lookupErr error) (verified *State, drift []string) {
 	if !isAgentNotFound(lookupErr) {
-		return prior, []string{fmt.Sprintf(
-			"prior state could not be verified against the control plane (%v); "+
-				"the plan assumes the recorded state is accurate", lookupErr)}
+		return prior, []string{unverifiedWarning(lookupErr)}
 	}
 
 	// The agent is genuinely gone. Clear what depended on it so the plan shows

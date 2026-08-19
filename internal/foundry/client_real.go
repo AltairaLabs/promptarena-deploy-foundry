@@ -2,9 +2,11 @@ package foundry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -292,7 +294,7 @@ func (c *restClient) GetAgent(ctx context.Context, name string) (*Agent, error) 
 	}
 	defer closeBody(resp)
 	if runtime.HasStatusCode(resp, http.StatusNotFound) {
-		return nil, fmt.Errorf("agent %q: %w", name, ErrAgentNotFound)
+		return nil, notFoundError(resp, fmt.Errorf("agent %q: %w", name, ErrAgentNotFound))
 	}
 	if !runtime.HasStatusCode(resp, http.StatusOK) {
 		return nil, runtime.NewResponseError(resp)
@@ -313,7 +315,8 @@ func (c *restClient) GetVersion(ctx context.Context, name, version string) (*Age
 	}
 	defer closeBody(resp)
 	if runtime.HasStatusCode(resp, http.StatusNotFound) {
-		return nil, fmt.Errorf("agent %q version %q: %w", name, version, ErrVersionNotFound)
+		return nil, notFoundError(resp,
+			fmt.Errorf("agent %q version %q: %w", name, version, ErrVersionNotFound))
 	}
 	if !runtime.HasStatusCode(resp, http.StatusOK) {
 		return nil, runtime.NewResponseError(resp)
@@ -356,7 +359,7 @@ func (c *restClient) SetServedVersion(ctx context.Context, name, version string)
 	}
 	defer closeBody(resp)
 	if runtime.HasStatusCode(resp, http.StatusNotFound) {
-		return fmt.Errorf("agent %q: %w", name, ErrAgentNotFound)
+		return notFoundError(resp, fmt.Errorf("agent %q: %w", name, ErrAgentNotFound))
 	}
 	if !runtime.HasStatusCode(resp, http.StatusOK, http.StatusAccepted, http.StatusNoContent) {
 		return runtime.NewResponseError(resp)
@@ -402,6 +405,43 @@ func (c *restClient) DeleteAgent(ctx context.Context, name string) error {
 		return runtime.NewResponseError(resp)
 	}
 	return nil
+}
+
+// projectMissingMarker is the phrase Foundry uses when the project in the URL
+// does not exist. Verified against a real account, which answers
+// {"error":{"code":"ResourceNotFound","message":"The project does not exist."}}
+//
+// Matching on message text is normally the wrong thing to do, and it is done
+// here only because the API gives nothing better: the code is the generic
+// ResourceNotFound for a missing project and a missing agent alike. If the
+// phrasing changes this degrades to the old behavior — the resource-level
+// error — rather than breaking.
+const projectMissingMarker = "project does not exist"
+
+// notFoundError decides what a 404 actually means. resourceErr is returned for
+// an ordinary missing agent or version; a missing project is reported as
+// ErrProjectNotFound, because that is a configuration error rather than drift.
+func notFoundError(resp *http.Response, resourceErr error) error {
+	// runtime.Payload, not io.ReadAll: the pipeline may already have consumed
+	// the body, and Payload returns azcore's cached copy and restores it for
+	// anything downstream.
+	body, err := runtime.Payload(resp)
+	if err != nil {
+		return resourceErr
+	}
+
+	var envelope struct {
+		Error errorWire `json:"error"`
+	}
+	// An empty or unparseable body still means the resource is not there.
+	if unmarshalErr := json.Unmarshal(body, &envelope); unmarshalErr != nil {
+		return resourceErr
+	}
+
+	if strings.Contains(strings.ToLower(envelope.Error.Message), projectMissingMarker) {
+		return fmt.Errorf("%s: %w", envelope.Error.Message, ErrProjectNotFound)
+	}
+	return resourceErr
 }
 
 // closeBody drains and closes a response body so the connection can be

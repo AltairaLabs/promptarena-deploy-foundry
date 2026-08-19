@@ -303,3 +303,22 @@ func TestLifecycleNotImplemented(t *testing.T) {
 		})
 	}
 }
+
+// A missing project is a configuration error, not drift: every operation
+// against it will fail, so Plan must say so rather than present a plan that
+// cannot apply.
+func TestPlanFailsOnAMissingProject(t *testing.T) {
+	p := NewProvider()
+	p.clientFunc = func(context.Context, *Config) (foundryClient, error) {
+		return &stubClient{agentErr: fmt.Errorf("lookup: %w", ErrProjectNotFound)}, nil
+	}
+
+	prior := `{"version":1,"agent_name":"solo-pack","served_version":"1","pack_hash":"x","config_hash":"y"}`
+	_, err := p.Plan(context.Background(), planRequest(t, validConfigJSON, singleAgentPack, prior))
+	if err == nil {
+		t.Fatal("Plan succeeded against a project that does not exist")
+	}
+	if !strings.Contains(err.Error(), "proj") {
+		t.Errorf("err = %v, want it to name the project", err)
+	}
+}

@@ -12,6 +12,13 @@ var (
 	// longer exists on the Foundry control plane.
 	ErrAgentNotFound = errors.New("agent not found")
 
+	// ErrProjectNotFound reports that the configured project does not exist.
+	// Foundry answers 404 for this and for a missing agent alike, so the two are
+	// told apart by the response body — see notFoundError. Conflating them would
+	// turn a typo in project into apparent agent drift, producing a confident
+	// plan that can never apply.
+	ErrProjectNotFound = errors.New("project not found")
+
 	// ErrVersionNotFound reports that a specific agent version does not exist.
 	ErrVersionNotFound = errors.New("agent version not found")
 
