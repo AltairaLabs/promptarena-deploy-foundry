@@ -1,0 +1,105 @@
+package main
+
+import "testing"
+
+// env builds a getenv function over a map, so config parsing is testable
+// without mutating the process environment.
+func env(pairs map[string]string) func(string) string {
+	return func(k string) string { return pairs[k] }
+}
+
+func TestLoadConfigInlinePack(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON:  `{"id":"p"}`,
+		envProviders: `[{"name":"default","role":"llm","type":"azure","model":"gpt-4o"}]`,
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.PackJSON != `{"id":"p"}` {
+		t.Errorf("PackJSON = %q", cfg.PackJSON)
+	}
+	if cfg.Port != defaultPort {
+		t.Errorf("Port = %q, want %q", cfg.Port, defaultPort)
+	}
+}
+
+// The platform injects PORT and expects the container to honor it; 8088 is
+// only the documented default for a local run.
+func TestLoadConfigHonoursInjectedPort(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON: `{"id":"p"}`,
+		"PORT":      "9001",
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.Port != "9001" {
+		t.Errorf("Port = %q, want 9001", cfg.Port)
+	}
+}
+
+// Without a pack there is nothing to serve, and failing at startup is far
+// better than accepting traffic and erroring on every request.
+func TestLoadConfigRequiresAPack(t *testing.T) {
+	if _, err := loadConfig(env(map[string]string{})); err == nil {
+		t.Fatal("loadConfig accepted a container with no pack")
+	}
+}
+
+// Foundry injects the project endpoint; the runtime prefers its own name so
+// the same image still runs on a host that injects nothing.
+func TestLoadConfigReadsFoundryInjectedValues(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON:         `{"id":"p"}`,
+		envFoundryProjectEP: "https://acct.services.ai.azure.com/api/projects/proj",
+		envFoundrySessionID: "sess-123",
+		envFoundryAgentName: "solo-pack",
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ProjectEndpoint != "https://acct.services.ai.azure.com/api/projects/proj" {
+		t.Errorf("ProjectEndpoint = %q", cfg.ProjectEndpoint)
+	}
+	if cfg.SessionID != "sess-123" {
+		t.Errorf("SessionID = %q, want sess-123", cfg.SessionID)
+	}
+}
+
+func TestLoadConfigTracing(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON:       `{"id":"p"}`,
+		envTracingEnabled: "true",
+		envOTLPEndpoint:   "https://collector:4318",
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if !cfg.TracingEnabled {
+		t.Error("TracingEnabled = false, want true")
+	}
+	if cfg.OTLPEndpoint != "https://collector:4318" {
+		t.Errorf("OTLPEndpoint = %q", cfg.OTLPEndpoint)
+	}
+}
+
+func TestLoadConfigRejectsBadTracingFlag(t *testing.T) {
+	_, err := loadConfig(env(map[string]string{
+		envPackJSON:       `{"id":"p"}`,
+		envTracingEnabled: "yes-please",
+	}))
+	if err == nil {
+		t.Fatal("loadConfig accepted a non-boolean tracing flag")
+	}
+}
+
+func TestLoadConfigTracingOffByDefault(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{envPackJSON: `{"id":"p"}`}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.TracingEnabled {
+		t.Error("TracingEnabled = true; an unconfigured deployment must send nothing")
+	}
+}
