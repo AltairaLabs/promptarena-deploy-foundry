@@ -27,7 +27,7 @@ func TestResolvePackFileWritesInline(t *testing.T) {
 // cannot write its pack exits before it ever answers /readiness — which the
 // platform reports only as an opaque "session did not become ready".
 func TestResolvePackFileFallsBackToAWritableDir(t *testing.T) {
-	unwritable := filepath.Join(t.TempDir(), "nope", "deeper")
+	unwritable := readOnlyDir(t)
 	good := t.TempDir()
 	cfg := &runtimeConfig{PackJSON: `{"id":"p"}`}
 
@@ -41,7 +41,7 @@ func TestResolvePackFileFallsBackToAWritableDir(t *testing.T) {
 }
 
 func TestResolvePackFileReportsWhenNothingIsWritable(t *testing.T) {
-	bad := filepath.Join(t.TempDir(), "nope", "deeper")
+	bad := readOnlyDir(t)
 	cfg := &runtimeConfig{PackJSON: `{"id":"p"}`}
 
 	_, err := resolvePackFile(cfg, []string{bad})
@@ -85,4 +85,57 @@ func TestPackDirCandidatesWithoutHome(t *testing.T) {
 	if len(got) == 0 {
 		t.Fatal("candidates is empty with no HOME set")
 	}
+}
+
+// The sandbox root is read-only — reproduced locally, where the container died
+// with "read-only file system" and never answered /readiness. The writable
+// mounts are the session's own, so those paths are tried explicitly rather than
+// trusted to arrive via $HOME.
+func TestPackDirCandidatesIncludesSessionMounts(t *testing.T) {
+	got := packDirCandidates(func(string) string { return "" })
+
+	want := map[string]bool{sessionHomeDir: false, sessionFilesDir: false}
+	for _, dir := range got {
+		if _, ok := want[dir]; ok {
+			want[dir] = true
+		}
+	}
+	for dir, found := range want {
+		if !found {
+			t.Errorf("candidates = %v, want %q included", got, dir)
+		}
+	}
+}
+
+// A candidate that does not exist yet must be created rather than skipped: the
+// mount may be present with no subdirectory, and giving up would kill startup.
+func TestResolvePackFileCreatesTheDirectory(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "made", "up")
+	cfg := &runtimeConfig{PackJSON: `{"id":"p"}`}
+
+	path, err := resolvePackFile(cfg, []string{target})
+	if err != nil {
+		t.Fatalf("resolvePackFile: %v", err)
+	}
+	if filepath.Dir(path) != target {
+		t.Errorf("wrote to %q, want it under %q", path, target)
+	}
+}
+
+// readOnlyDir returns a directory that exists but cannot be written to, which
+// is what the sandbox's read-only root behaves like. A merely absent directory
+// is no longer a stand-in for this: resolvePackFile creates missing ones on
+// purpose.
+func readOnlyDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatalf("create read-only dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which bypasses directory permissions")
+	}
+	return dir
 }

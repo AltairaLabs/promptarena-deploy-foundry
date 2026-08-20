@@ -103,3 +103,34 @@ func TestLoadConfigTracingOffByDefault(t *testing.T) {
 		t.Error("TracingEnabled = true; an unconfigured deployment must send nothing")
 	}
 }
+
+// Foundry injects the container's identity as FOUNDRY_AGENT_INSTANCE_CLIENT_ID.
+// Confirmed by probing a live sandbox, which showed no AZURE_CLIENT_ID at all —
+// so reading only that name left the runtime with no identity to present.
+func TestLoadConfigReadsTheInjectedAgentIdentity(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON:        `{"id":"p"}`,
+		envFoundryClientID: "cfe80883-d40b-4aa2-94fa-2d3e15873e8c",
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ClientID != "cfe80883-d40b-4aa2-94fa-2d3e15873e8c" {
+		t.Errorf("ClientID = %q, want the injected instance client id", cfg.ClientID)
+	}
+}
+
+// AZURE_CLIENT_ID still works, so the same image runs on hosts that use the
+// conventional name.
+func TestLoadConfigFallsBackToAzureClientID(t *testing.T) {
+	cfg, err := loadConfig(env(map[string]string{
+		envPackJSON: `{"id":"p"}`,
+		envClientID: "conventional-id",
+	}))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ClientID != "conventional-id" {
+		t.Errorf("ClientID = %q, want the fallback", cfg.ClientID)
+	}
+}

@@ -20,13 +20,15 @@ const (
 	readHeaderTimeout = 30 * time.Second
 )
 
-// buildMux registers the routes this container serves.
+// moduleName identifies this runtime in the x-platform-server header.
+const moduleName = "promptarena-deploy-foundry"
+
+// buildMux registers the routes this container serves, wrapped so every
+// response carries the platform headers Foundry's own servers send.
 func buildMux(turn turnFunc, stream streamFunc) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+routeReadiness, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.Handle(routeInvocations, newInvocationsHandler(turn, stream))
+	mux.Handle("GET "+routeReadiness, withPlatformHeaders(newReadinessHandler()))
+	mux.Handle(routeInvocations, withPlatformHeaders(newInvocationsHandler(turn, stream)))
 	return mux
 }
 

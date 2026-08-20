@@ -215,3 +215,56 @@ func TestMuxServesInvocations(t *testing.T) {
 		t.Errorf("POST %s = %d, want %d", routeInvocations, rec.Code, http.StatusOK)
 	}
 }
+
+// Foundry's own protocol libraries answer /readiness with a JSON body, not a
+// bare 200. Reverse-engineered from azure-ai-agentserver-core, which returns
+// {"status":"healthy"} as application/json.
+func TestReadinessReturnsHealthyJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	buildMux(okTurn, streamOK).ServeHTTP(
+		rec, httptest.NewRequest(http.MethodGet, routeReadiness, nil))
+
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v (%q)", err, rec.Body.String())
+	}
+	if body.Status != "healthy" {
+		t.Errorf("status = %q, want healthy", body.Status)
+	}
+}
+
+// Every response from Foundry's own servers carries x-platform-server, added
+// by middleware. It is the only thing resembling a container handshake in the
+// protocol libraries, so a hand-rolled container must send it too.
+func TestEveryResponseCarriesPlatformServerHeader(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *http.Request
+	}{
+		{"readiness", httptest.NewRequest(http.MethodGet, routeReadiness, nil)},
+		{"invocations", httptest.NewRequest(http.MethodPost, routeInvocations,
+			strings.NewReader(`{"message":"hi"}`))},
+		{"bad request", httptest.NewRequest(http.MethodPost, routeInvocations,
+			strings.NewReader(`{`))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			buildMux(okTurn, streamOK).ServeHTTP(rec, tt.req)
+
+			got := rec.Header().Get(headerPlatformServer)
+			if got == "" {
+				t.Fatalf("%s is missing", headerPlatformServer)
+			}
+			if !strings.Contains(got, "go/") {
+				t.Errorf("%s = %q, want it to name the runtime", headerPlatformServer, got)
+			}
+		})
+	}
+}

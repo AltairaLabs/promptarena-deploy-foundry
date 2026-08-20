@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
+	"strings"
 )
 
 // Routes this container serves.
@@ -24,6 +26,24 @@ const (
 
 // contentTypeSSE is the media type for the streaming response.
 const contentTypeSSE = "text/event-stream"
+
+// contentTypeJSON is the media type for unary and readiness responses.
+const contentTypeJSON = "application/json"
+
+// headerPlatformServer identifies the agent-server implementation to the
+// platform. Foundry's own protocol libraries attach it to every HTTP response
+// through middleware, in the form "{sdk}/{version} ({runtime}/{ver})".
+//
+// It is the only thing in those libraries that resembles a container
+// handshake, and its absence is the leading explanation for a hand-rolled
+// container never being marked ready — the platform publishes no raw contract
+// to check this against, so this is reverse-engineered from
+// azure-ai-agentserver-core.
+const headerPlatformServer = "x-platform-server"
+
+// readinessBody is what Foundry's own servers return from /readiness: a JSON
+// document, not a bare 200.
+const readinessBody = `{"status":"healthy"}`
 
 // sseDoneEvent terminates a stream. Borrowed from the OpenAI convention so
 // clients that already understand SSE need no special casing.
@@ -125,7 +145,7 @@ func newInvocationsHandler(turn turnFunc, stream streamFunc) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", contentTypeJSON)
 		_ = json.NewEncoder(w).Encode(invocationResponse{
 			Output:         out,
 			ConversationID: req.ConversationID,
@@ -216,4 +236,42 @@ func writeSSEHeader(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+}
+
+// platformServerValue builds this runtime's x-platform-server value, matching
+// the shape Foundry's own libraries emit.
+func platformServerValue() string {
+	return fmt.Sprintf("%s/%s (go/%s)", moduleName, Version, runtimeVersion())
+}
+
+// runtimeVersion reports the Go language version as major.minor, mirroring how
+// the Python libraries report "python/3.11".
+func runtimeVersion() string {
+	v := strings.TrimPrefix(runtime.Version(), "go")
+	// major.minor only, as "python/3.11" is reported.
+	const majorMinor = 2
+	parts := strings.Split(v, ".")
+	if len(parts) >= majorMinor {
+		return parts[0] + "." + parts[1]
+	}
+	return v
+}
+
+// withPlatformHeaders attaches x-platform-server to every response, including
+// error responses, as the platform's own middleware does.
+func withPlatformHeaders(next http.Handler) http.Handler {
+	value := platformServerValue()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(headerPlatformServer, value)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newReadinessHandler serves GET /readiness.
+func newReadinessHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentTypeJSON)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(readinessBody))
+	})
 }

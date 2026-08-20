@@ -12,6 +12,22 @@ const packFileName = "pack.json"
 // packFilePerm is the permission mode for the written pack file.
 const packFilePerm = 0o600
 
+// packDirPerm is the permission mode for a directory created to hold it.
+const packDirPerm = 0o700
+
+// Writable locations Foundry provides to a session's sandbox. The rest of the
+// container's filesystem is read-only — reproduced locally, where a read-only
+// root made the process die at startup with "read-only file system" and never
+// answer /readiness.
+//
+// These are named explicitly rather than trusted to arrive through $HOME,
+// because $HOME is not reliably set: the same design note that promised it also
+// claimed /readiness gated deployment, which measurement disproved.
+const (
+	sessionHomeDir  = "/home/session"
+	sessionFilesDir = "/files"
+)
+
 // packDirCandidates lists where to try writing the pack, best first.
 //
 // $HOME comes first because it is the location Foundry documents as writable
@@ -25,7 +41,7 @@ func packDirCandidates(getenv func(string) string) []string {
 	if home := getenv("HOME"); home != "" {
 		dirs = append(dirs, home)
 	}
-	return append(dirs, os.TempDir(), ".")
+	return append(dirs, sessionHomeDir, sessionFilesDir, os.TempDir(), ".")
 }
 
 // resolvePackFile materializes the pack as a local file and returns its path,
@@ -44,6 +60,12 @@ func resolvePackFile(cfg *runtimeConfig, dirs []string) (string, error) {
 
 	var lastErr error
 	for _, dir := range dirs {
+		// Create the directory first: a writable mount may be present with no
+		// subdirectory, and skipping it would kill startup for no reason.
+		if err := os.MkdirAll(dir, packDirPerm); err != nil {
+			lastErr = err
+			continue
+		}
 		path := filepath.Join(dir, packFileName)
 		if err := os.WriteFile(path, []byte(cfg.PackJSON), packFilePerm); err != nil {
 			lastErr = err

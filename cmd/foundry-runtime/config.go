@@ -37,15 +37,33 @@ const (
 	envFoundrySessionID = "FOUNDRY_AGENT_SESSION_ID"
 	envFoundryAgentName = "FOUNDRY_AGENT_NAME"
 	envFoundryAgentVer  = "FOUNDRY_AGENT_VERSION"
-	// envClientID is the per-version managed identity the container runs as.
-	// Each agent version gets its own; confirmed on a live deploy, where the
-	// version reported an instance_identity distinct from the project's.
+	// envFoundryClientID is the per-version managed identity the container runs
+	// as. Each agent version gets its own — confirmed on a live deploy, where
+	// the version reported an instance_identity distinct from the project's.
+	//
+	// This is the name Foundry actually injects. AZURE_CLIENT_ID, the
+	// conventional name, is NOT present in the sandbox: probing a live one
+	// showed only the FOUNDRY_* names, so reading the conventional name alone
+	// left the runtime with no identity and every model call unauthorized.
+	envFoundryClientID = "FOUNDRY_AGENT_INSTANCE_CLIENT_ID"
+	// envClientID is the conventional name, honored as a fallback so the same
+	// image runs unchanged on hosts that set it.
 	envClientID = "AZURE_CLIENT_ID"
 )
 
 // defaultPort is the port Foundry documents for hosted agents. The platform
 // injects PORT, so this is only the fallback for a local run.
 const defaultPort = "8088"
+
+// firstEnv returns the first non-empty variable among names.
+func firstEnv(getenv func(string) string, names ...string) string {
+	for _, name := range names {
+		if v := getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // runtimeConfig holds all configuration parsed from the environment.
 type runtimeConfig struct {
@@ -86,7 +104,7 @@ func loadConfig(getenv func(string) string) (*runtimeConfig, error) {
 		SessionID:       getenv(envFoundrySessionID),
 		FoundryAgent:    getenv(envFoundryAgentName),
 		FoundryVersion:  getenv(envFoundryAgentVer),
-		ClientID:        getenv(envClientID),
+		ClientID:        firstEnv(getenv, envFoundryClientID, envClientID),
 
 		OTLPEndpoint: getenv(envOTLPEndpoint),
 	}
