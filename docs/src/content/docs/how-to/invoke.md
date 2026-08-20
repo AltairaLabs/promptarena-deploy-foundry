@@ -108,20 +108,21 @@ az role definition create --role-definition '{
 }'
 ```
 
-The agent also needs access to the model it calls. Each agent version gets its
-**own** managed identity, so grant `Cognitive Services OpenAI User` to the
-version's `instance_identity.principal_id` — a new version means a new
-identity:
+### The agent needs no grant for models
 
-```bash
-az role assignment create \
-  --assignee-object-id "$INSTANCE_PRINCIPAL_ID" \
-  --assignee-principal-type ServicePrincipal \
-  --role "Cognitive Services OpenAI User" \
-  --scope "$ACCOUNT_RESOURCE_ID"
-```
+A deployed agent reaches its model with **no role assignment of any kind**.
+Foundry gives an agent implicit access to model inferencing *through its own
+project endpoint*, and the runtime uses that route deliberately.
 
-Role assignments take a minute or two to propagate on the data plane.
+This only holds through the project. An agent that calls the account-level
+endpoint (`{account}.openai.azure.com`) directly bypasses the proxy and would
+need `Cognitive Services OpenAI User` granted to its identity by hand — one
+manual step per agent, which is exactly what routing through the project
+avoids. Verified both ways against a live project: a brand-new agent with zero
+role assignments answers over the project route.
+
+The agent's identity is created once per agent and is stable across every
+version, so nothing needs re-granting on redeploy either.
 
 ## Troubleshooting
 

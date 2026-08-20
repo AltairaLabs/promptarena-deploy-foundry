@@ -84,6 +84,13 @@ These are not preferences — the platform enforces them:
   Go container that serves `/readiness` and `/invocations` correctly in isolation
   still never becomes ready in the sandbox, and container startup logs are not
   exposed through any API, so the missing piece cannot be observed directly.
+- **Inference goes through the project endpoint, never the account endpoint.**
+  Foundry grants an agent implicit model access through its own project, so a
+  deploy needs no RBAC step at all. Calling `{account}.openai.azure.com`
+  directly bypasses that and forces a manual `Cognitive Services OpenAI User`
+  grant per agent. The project route also means the Responses API, not Chat
+  Completions — `sdk.WithAzure` forces the legacy path, so the provider is
+  built directly instead.
 - **`/readiness` is our job**, but it does not gate deployment. Microsoft's
   Python and C# protocol libraries provide it; a Go container must serve it
   itself. Measured against a live project: an image that pulls but listens on
