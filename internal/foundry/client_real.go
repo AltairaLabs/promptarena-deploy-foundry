@@ -97,9 +97,16 @@ func newRESTClient(
 // plan, apply and state.
 type (
 	agentWire struct {
-		Name          string             `json:"name"`
-		AgentEndpoint *agentEndpointWire `json:"agent_endpoint,omitempty"`
-		Metadata      map[string]string  `json:"metadata,omitempty"`
+		Name             string             `json:"name"`
+		AgentEndpoint    *agentEndpointWire `json:"agent_endpoint,omitempty"`
+		Metadata         map[string]string  `json:"metadata,omitempty"`
+		InstanceIdentity *identityWire      `json:"instance_identity,omitempty"`
+	}
+
+	// identityWire is the agent's managed identity, minted with the agent.
+	identityWire struct {
+		PrincipalID string `json:"principal_id"`
+		ClientID    string `json:"client_id"`
 	}
 
 	agentEndpointWire struct {
@@ -494,6 +501,9 @@ func closeBody(resp *http.Response) {
 // toAgent converts the wire shape into the adapter's domain type.
 func toAgent(w *agentWire) *Agent {
 	agent := &Agent{Name: w.Name, Metadata: w.Metadata}
+	if w.InstanceIdentity != nil {
+		agent.PrincipalID = w.InstanceIdentity.PrincipalID
+	}
 	if w.AgentEndpoint == nil || w.AgentEndpoint.VersionSelector == nil {
 		return agent
 	}

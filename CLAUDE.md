@@ -91,6 +91,11 @@ These are not preferences — the platform enforces them:
   grant per agent. The project route also means the Responses API, not Chat
   Completions — `sdk.WithAzure` forces the legacy path, so the provider is
   built directly instead.
+- **Apply grants voice its model access automatically.** The account is found
+  from its name, so no subscription or resource group is needed in config; the
+  assignment is idempotent and the agent identity is stable across versions, so
+  it happens once per agent. A denial is reported with the exact command, never
+  fatal — the agent exists and its text path works.
 - **Voice cannot use the project proxy.** The proxy serves `/responses` but
   answers 404 for `/audio/speech` and `/audio/transcriptions`; both return 200
   at the account endpoint. So a pack with stt/tts bindings needs the agent

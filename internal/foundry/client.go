@@ -30,6 +30,10 @@ type Agent struct {
 	// Metadata is the agent's key/value data, including any the user configured
 	// under the config's `tags` key and the adapter's managed entries.
 	Metadata map[string]string
+	// PrincipalID is the agent's own managed identity. It is created with the
+	// agent and stable across every version, so anything granted to it survives
+	// a redeploy.
+	PrincipalID string
 }
 
 // AgentVersion is one immutable version of an agent.

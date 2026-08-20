@@ -23,6 +23,17 @@ type applyInput struct {
 	AgentName  string
 	PackHash   string
 	ConfigHash string
+	// NeedsModelGrant is true when the pack declares speech bindings. Only
+	// voice needs it: text inference goes through the project endpoint, where
+	// the agent already has implicit access.
+	NeedsModelGrant bool
+	// Grant gives the agent identity account-level model access. Nil skips it.
+	Grant modelAccessGranter
+}
+
+// modelAccessGranter grants an agent identity access to account-level models.
+type modelAccessGranter interface {
+	GrantModelAccess(ctx context.Context, account, principalID string) error
 }
 
 // Apply creates or updates the pack's hosted agent and returns the state to
@@ -63,11 +74,13 @@ func (p *Provider) Apply(
 	}
 
 	next, applyErr := applyAgent(ctx, client, &applyInput{
-		Cfg:        in.Cfg,
-		Spec:       spec,
-		AgentName:  in.AgentName,
-		PackHash:   in.PackHash,
-		ConfigHash: in.ConfigHash,
+		Cfg:             in.Cfg,
+		Spec:            spec,
+		AgentName:       in.AgentName,
+		PackHash:        in.PackHash,
+		ConfigHash:      in.ConfigHash,
+		NeedsModelGrant: hasSpeechBindings(in.Bindings),
+		Grant:           p.modelGranter(ctx),
 	}, in.Prior, report)
 
 	state, marshalErr := next.Marshal()
@@ -156,8 +169,45 @@ func ensureAgent(
 	state.AgentName = agent.Name
 	reportResource(report, ResTypeAgent, agent.Name,
 		deploy.ActionCreate, "created", "Foundry hosted agent created")
+
+	grantModelAccess(ctx, in, agent, report)
+
 	reportProgress(report, "Agent created", progressAgentReady)
 	return nil
+}
+
+// grantModelAccess gives a voice agent the account-level access its speech
+// bindings need.
+//
+// A failure is reported, never fatal. The agent is already created and its
+// text path works; refusing to finish the deploy over a permission the
+// operator can grant in one command would be worse than saying so. The grant
+// is idempotent and the identity is stable across versions, so it runs once
+// per agent.
+func grantModelAccess(
+	ctx context.Context, in *applyInput, agent *Agent, report *adaptersdk.ProgressReporter,
+) {
+	if !in.NeedsModelGrant || in.Grant == nil {
+		return
+	}
+	if agent.PrincipalID == "" {
+		reportProgress(report,
+			"Speech bindings are configured but the agent reported no identity; "+
+				"grant model access manually", progressAgentReady)
+		return
+	}
+
+	err := in.Grant.GrantModelAccess(ctx, in.Cfg.Account, agent.PrincipalID)
+	if err == nil {
+		reportProgress(report, "Granted the agent access to speech models", progressAgentReady)
+		return
+	}
+
+	// Hand over the exact command rather than a permission name.
+	reportProgress(report, fmt.Sprintf(
+		"Could not grant the agent access to speech models (%v). Voice will fail "+
+			"until someone with permission runs:\n  %s",
+		err, manualGrantCommand(in.Cfg.Account, agent.PrincipalID)), progressAgentReady)
 }
 
 // versionNeeded reports whether this apply must create a version. Versions are

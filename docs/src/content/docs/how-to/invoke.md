@@ -108,7 +108,31 @@ az role definition create --role-definition '{
 }'
 ```
 
-### The agent needs no grant for models
+### The agent needs no grant for models — the adapter handles voice
+
+Text needs no role assignment at all: Foundry gives an agent implicit access to
+model inferencing through its own project endpoint, and the runtime uses that
+route deliberately.
+
+Voice cannot use it. Audio is not proxied by the project, so speech bindings
+reach the account endpoint and need `Cognitive Services OpenAI User`. **Apply
+grants that itself** when the pack declares stt or tts bindings — it finds the
+account from its name, so no subscription or resource group is needed in the
+config, and the assignment is idempotent and made once per agent.
+
+If the deploying identity may not create role assignments, the deploy still
+succeeds and prints the exact command for someone who can:
+
+```
+Could not grant the agent access to speech models (…). Voice will fail until
+someone with permission runs:
+  az role assignment create --assignee-object-id <agent-principal> …
+```
+
+Creating role assignments needs `Microsoft.Authorization/roleAssignments/write`
+on the account — Owner or Role Based Access Control Administrator.
+
+### Details
 
 A deployed agent reaches its model with **no role assignment of any kind**.
 Foundry gives an agent implicit access to model inferencing *through its own

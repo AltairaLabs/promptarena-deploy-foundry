@@ -14,6 +14,16 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 )
 
+// newTLSServer starts a TLS test server. TLS, not plain HTTP: azcore's
+// bearer-token policy refuses to attach a credential to a non-https endpoint,
+// so a plain httptest server would fail every request before the handler ran.
+func newTLSServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // fakeCredential hands out a static token so the pipeline's bearer policy runs
 // without contacting Entra.
 type fakeCredential struct{}
@@ -27,11 +37,7 @@ func (fakeCredential) GetToken(
 // testClient wires a restClient to an httptest server.
 func testClient(t *testing.T, handler http.HandlerFunc) *restClient {
 	t.Helper()
-	// TLS, not plain HTTP: azcore's bearer-token policy refuses to attach a
-	// credential to a non-https endpoint, so a plain httptest server would fail
-	// every request before the handler ran.
-	srv := httptest.NewTLSServer(handler)
-	t.Cleanup(srv.Close)
+	srv := newTLSServer(t, handler)
 
 	c, err := newRESTClient(srv.URL, fakeCredential{}, srv.Client())
 	if err != nil {
