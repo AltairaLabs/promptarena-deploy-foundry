@@ -100,3 +100,62 @@ func TestHTTPToolConfigWithoutAMethod(t *testing.T) {
 		t.Fatal("httpToolConfig = nil, want a config")
 	}
 }
+
+// mock_template wins over mock_result, matching the arena's own precedence —
+// a deployed agent that resolved them differently would make local evals
+// meaningless.
+func TestMockHandlerTemplateWinsOverResult(t *testing.T) {
+	spec := toolSpec{
+		Name:         "greet",
+		MockResult:   map[string]any{"from": "result"},
+		MockTemplate: `{"from":"template"}`,
+	}
+
+	got, err := mockHandler(spec)(map[string]any{})
+	if err != nil {
+		t.Fatalf("mockHandler: %v", err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), "template") {
+		t.Errorf("handler returned %s, want the template to win", encoded)
+	}
+}
+
+func TestMockHandlerReturnsTheResult(t *testing.T) {
+	spec := toolSpec{Name: "greet", MockResult: map[string]any{"ok": true}}
+
+	got, err := mockHandler(spec)(map[string]any{})
+	if err != nil {
+		t.Fatalf("mockHandler: %v", err)
+	}
+	if got == nil {
+		t.Error("handler returned nil, want the configured result")
+	}
+}
+
+// A tool declared as a mock with nothing to return is a configuration mistake
+// worth reporting at call time rather than answering null.
+func TestMockHandlerWithoutAnyMock(t *testing.T) {
+	spec := toolSpec{Name: "empty"}
+
+	if _, err := mockHandler(spec)(map[string]any{}); err == nil {
+		t.Fatal("mockHandler succeeded with neither a result nor a template")
+	}
+}
+
+// Rendered output that is not JSON still has to reach the model as something,
+// mirroring PromptKit's own executor.
+func TestRenderMockTemplateNonJSONFallsBack(t *testing.T) {
+	spec := toolSpec{Name: "plain", MockTemplate: `just text`}
+
+	got, err := renderMockTemplate(spec, map[string]any{})
+	if err != nil {
+		t.Fatalf("renderMockTemplate: %v", err)
+	}
+	if got == nil {
+		t.Error("rendered nil, want the text wrapped")
+	}
+}

@@ -496,3 +496,66 @@ func TestProjectEndpoint(t *testing.T) {
 		t.Errorf("projectEndpoint = %q, want %q", got, want)
 	}
 }
+
+// Destroy and Status both reach the control plane, so both must surface a
+// config they cannot parse rather than acting on a half-understood one.
+func TestDestroyAndStatusRejectMalformedInput(t *testing.T) {
+	p := applyProvider(t, newRecordingClient())
+	ctx := context.Background()
+
+	if err := p.Destroy(ctx, &deploy.DestroyRequest{DeployConfig: `{`}, nil); err == nil {
+		t.Error("Destroy accepted malformed config")
+	}
+	if err := p.Destroy(ctx, &deploy.DestroyRequest{
+		DeployConfig: validConfigJSON, PriorState: `{`,
+	}, nil); err == nil {
+		t.Error("Destroy accepted malformed state")
+	}
+	if _, err := p.Status(ctx, &deploy.StatusRequest{DeployConfig: `{`}); err == nil {
+		t.Error("Status accepted malformed config")
+	}
+	if _, err := p.Status(ctx, &deploy.StatusRequest{
+		DeployConfig: validConfigJSON, PriorState: `{`,
+	}); err == nil {
+		t.Error("Status accepted malformed state")
+	}
+}
+
+// The operator is told what was removed, not left to infer it.
+func TestDestroyReportsTheDeletedAgent(t *testing.T) {
+	client := newRecordingClient()
+	client.seedAgent("solo-pack", "1")
+	p := applyProvider(t, client)
+
+	var messages []string
+	cb := func(e *deploy.DestroyEvent) error {
+		messages = append(messages, e.Message)
+		return nil
+	}
+	prior := `{"version":1,"agent_name":"solo-pack","served_version":"1"}`
+	if err := p.Destroy(context.Background(), &deploy.DestroyRequest{
+		DeployConfig: validConfigJSON, PriorState: prior,
+	}, cb); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+
+	if !containsSubstring(messages, "solo-pack") {
+		t.Errorf("events = %v, want the agent named", messages)
+	}
+}
+
+// A control plane that cannot be reached must fail Status rather than report
+// a deployment healthy on no evidence.
+func TestStatusPropagatesAClientFailure(t *testing.T) {
+	p := NewProvider()
+	p.clientFunc = func(context.Context, *Config) (foundryClient, error) {
+		return nil, errors.New("no credential")
+	}
+
+	prior := `{"version":1,"agent_name":"solo-pack","served_version":"1"}`
+	if _, err := p.Status(context.Background(), &deploy.StatusRequest{
+		DeployConfig: validConfigJSON, PriorState: prior,
+	}); err == nil {
+		t.Fatal("Status succeeded with no control plane")
+	}
+}

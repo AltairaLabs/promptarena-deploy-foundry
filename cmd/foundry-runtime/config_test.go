@@ -158,3 +158,18 @@ func TestSetupTracingDisabled(t *testing.T) {
 		t.Errorf("shutdown: %v", err)
 	}
 }
+
+// Tracing that is asked for but has nowhere to send spans stays off rather
+// than failing the container: an agent serving without traces beats one that
+// does not serve.
+func TestSetupTracingEnabledWithoutAnEndpoint(t *testing.T) {
+	cfg := &runtimeConfig{TracingEnabled: true}
+
+	shutdown, opts := setupTracing(cfg, discardLogger())
+	if len(opts) != 0 {
+		t.Errorf("opts = %d, want none without an endpoint", len(opts))
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Errorf("shutdown: %v", err)
+	}
+}
