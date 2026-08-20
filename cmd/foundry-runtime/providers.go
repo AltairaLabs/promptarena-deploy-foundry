@@ -14,8 +14,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
 
-// roleLLM is the binding role that supplies the conversation's language model.
-const roleLLM = "llm"
+// Binding roles the runtime acts on. Voice is not a separate config concern:
+// speech in and speech out are bindings like any other.
+const (
+	roleLLM = "llm"
+	roleSTT = "stt"
+	roleTTS = "tts"
+)
 
 // defaultBindingName is the logical binding name treated as primary.
 const defaultBindingName = "default"

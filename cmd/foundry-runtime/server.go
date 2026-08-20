@@ -25,10 +25,18 @@ const moduleName = "promptarena-deploy-foundry"
 
 // buildMux registers the routes this container serves, wrapped so every
 // response carries the platform headers Foundry's own servers send.
-func buildMux(turn turnFunc, stream streamFunc) *http.ServeMux {
+//
+// voice may be nil when the pack declares no speech bindings; the route is
+// then left unregistered rather than answering with a socket that can do
+// nothing.
+func buildMux(turn turnFunc, stream streamFunc, voice http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET "+routeReadiness, withPlatformHeaders(newReadinessHandler()))
 	mux.Handle(routeInvocations, withPlatformHeaders(newInvocationsHandler(turn, stream)))
+	if voice != nil {
+		// Not wrapped: the upgrade response is the platform's own handshake.
+		mux.Handle(routeInvocationsWS, voice)
+	}
 	return mux
 }
 

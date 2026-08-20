@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -200,7 +202,7 @@ func TestInvocationsStreamWithoutAStreamer(t *testing.T) {
 
 func TestReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
-	buildMux(okTurn, streamOK).ServeHTTP(
+	buildMux(okTurn, streamOK, nil).ServeHTTP(
 		rec, httptest.NewRequest(http.MethodGet, routeReadiness, nil))
 
 	if rec.Code != http.StatusOK {
@@ -209,7 +211,7 @@ func TestReadiness(t *testing.T) {
 }
 
 func TestMuxServesInvocations(t *testing.T) {
-	rec := post(t, buildMux(okTurn, streamOK), `{"message":"hello"}`)
+	rec := post(t, buildMux(okTurn, streamOK, nil), `{"message":"hello"}`)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("POST %s = %d, want %d", routeInvocations, rec.Code, http.StatusOK)
@@ -221,7 +223,7 @@ func TestMuxServesInvocations(t *testing.T) {
 // {"status":"healthy"} as application/json.
 func TestReadinessReturnsHealthyJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	buildMux(okTurn, streamOK).ServeHTTP(
+	buildMux(okTurn, streamOK, nil).ServeHTTP(
 		rec, httptest.NewRequest(http.MethodGet, routeReadiness, nil))
 
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
@@ -256,7 +258,7 @@ func TestEveryResponseCarriesPlatformServerHeader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			buildMux(okTurn, streamOK).ServeHTTP(rec, tt.req)
+			buildMux(okTurn, streamOK, nil).ServeHTTP(rec, tt.req)
 
 			got := rec.Header().Get(headerPlatformServer)
 			if got == "" {
@@ -267,4 +269,33 @@ func TestEveryResponseCarriesPlatformServerHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A text-only pack must not advertise a socket it cannot serve.
+func TestMuxOmitsVoiceRouteWhenAbsent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	buildMux(okTurn, streamOK, nil).ServeHTTP(
+		rec, httptest.NewRequest(http.MethodGet, routeInvocationsWS, nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET %s = %d, want %d", routeInvocationsWS, rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestMuxServesVoiceRouteWhenPresent(t *testing.T) {
+	marker := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	rec := httptest.NewRecorder()
+	buildMux(okTurn, streamOK, marker).ServeHTTP(
+		rec, httptest.NewRequest(http.MethodGet, routeInvocationsWS, nil))
+
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("GET %s = %d, want the voice handler to serve it", routeInvocationsWS, rec.Code)
+	}
+}
+
+// testLogger returns a logger that discards output.
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

@@ -73,9 +73,18 @@ func run(ctx context.Context, log *slog.Logger) error {
 		"provider_options", len(opts),
 		"tool_specs", len(specs))
 
+	voice, err := buildVoiceHandler(cfg, packFile, agentName, opts, log)
+	if err != nil {
+		return fmt.Errorf("voice: %w", err)
+	}
+	if voice != nil {
+		log.Info("voice enabled", "route", routeInvocationsWS)
+	}
+
 	mux := buildMux(
 		newTurnFunc(packFile, agentName, opts, specs),
 		newStreamFunc(packFile, agentName, opts, specs),
+		voice,
 	)
 
 	return runServer(ctx, log, listenAddr(cfg), mux)

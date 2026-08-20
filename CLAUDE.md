@@ -102,6 +102,10 @@ These are not preferences — the platform enforces them:
   through `?agent_session_id=`, and the platform strips `Authorization` after
   validating it. The container also receives `x-agent-user-id` with the
   caller's Entra object id, which is what per-user isolation would key on.
+- **STT must be `whisper`, not `gpt-4o-mini-transcribe`.** PromptKit's STT
+  stage requests `response_format: verbose_json`, which the newer transcribe
+  models reject outright — the pipeline dies mid-turn with an
+  `unsupported_value` error. Whisper accepts it.
 - **`/readiness` is our job**, but it does not gate deployment. Microsoft's
   Python and C# protocol libraries provide it; a Go container must serve it
   itself. Measured against a live project: an image that pulls but listens on

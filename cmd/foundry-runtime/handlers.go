@@ -20,8 +20,9 @@ import (
 // platform validates the image at version-create and defers everything else to
 // first use, so readiness is a per-session concern.
 const (
-	routeReadiness   = "/readiness"
-	routeInvocations = "/invocations"
+	routeReadiness     = "/readiness"
+	routeInvocations   = "/invocations"
+	routeInvocationsWS = "/invocations_ws"
 )
 
 // contentTypeSSE is the media type for the streaming response.
