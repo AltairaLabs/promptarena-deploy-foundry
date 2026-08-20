@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // env builds a getenv function over a map, so config parsing is testable
 // without mutating the process environment.
@@ -132,5 +135,26 @@ func TestLoadConfigFallsBackToAzureClientID(t *testing.T) {
 	}
 	if cfg.ClientID != "conventional-id" {
 		t.Errorf("ClientID = %q, want the fallback", cfg.ClientID)
+	}
+}
+
+func TestListenAddrBindsAllInterfaces(t *testing.T) {
+	got := listenAddr(&runtimeConfig{Port: "8088"})
+
+	if got != "0.0.0.0:8088" {
+		t.Errorf("listenAddr = %q, want 0.0.0.0:8088", got)
+	}
+}
+
+// Tracing is off unless asked for, so an unconfigured deployment sends nothing
+// and pays nothing. Shutdown must still be safe to call.
+func TestSetupTracingDisabled(t *testing.T) {
+	shutdown, opts := setupTracing(&runtimeConfig{}, discardLogger())
+
+	if len(opts) != 0 {
+		t.Errorf("opts = %d, want none with tracing off", len(opts))
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Errorf("shutdown: %v", err)
 	}
 }

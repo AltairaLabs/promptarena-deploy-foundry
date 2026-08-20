@@ -127,3 +127,32 @@ func TestBuildVoiceHandlerRequiresTheAccountEndpoint(t *testing.T) {
 		t.Fatal("buildVoiceHandler accepted voice bindings with no account endpoint")
 	}
 }
+
+func TestAzureAudioClientUsesTheEntraTransport(t *testing.T) {
+	client := azureAudioClient(stubCred{})
+
+	transport, ok := client.Transport.(*entraTransport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *entraTransport", client.Transport)
+	}
+	if transport.scope != azureAudioScope {
+		t.Errorf("scope = %q, want %q", transport.scope, azureAudioScope)
+	}
+}
+
+// Voice needs both services; a pack with both bindings must get both.
+func TestAudioServicesBuildsBoth(t *testing.T) {
+	cfg := &runtimeConfig{AzureEndpoint: "https://acct.openai.azure.com/"}
+	bindings := []providerBinding{
+		{Role: roleSTT, Model: "whisper"},
+		{Role: roleTTS, Model: "gpt-4o-mini-tts"},
+	}
+
+	sttService, ttsService, err := audioServices(cfg, bindings, stubCred{})
+	if err != nil {
+		t.Fatalf("audioServices: %v", err)
+	}
+	if sttService == nil || ttsService == nil {
+		t.Errorf("stt=%v tts=%v, want both built", sttService != nil, ttsService != nil)
+	}
+}

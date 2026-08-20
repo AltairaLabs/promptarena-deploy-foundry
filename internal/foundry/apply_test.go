@@ -411,3 +411,88 @@ func TestStatusReportsAMissingAgent(t *testing.T) {
 		t.Errorf("Resources = %+v, want the agent reported missing", got.Resources)
 	}
 }
+
+func TestJoinErrors(t *testing.T) {
+	if got := joinErrors([]string{"a", "b"}); got != "a; b" {
+		t.Errorf("joinErrors = %q, want \"a; b\"", got)
+	}
+	if got := joinErrors([]string{"only"}); got != "only" {
+		t.Errorf("joinErrors = %q, want \"only\"", got)
+	}
+	if got := joinErrors(nil); got != "" {
+		t.Errorf("joinErrors(nil) = %q, want empty", got)
+	}
+}
+
+// An agent that exists but serves nothing is degraded, not deployed: the
+// endpoint would route traffic nowhere.
+func TestDeploymentStatus(t *testing.T) {
+	tests := []struct {
+		name  string
+		agent *Agent
+		prior *State
+		want  string
+	}{
+		{"serving", &Agent{ServedVersion: "1"}, &State{}, StatusDeployed},
+		{"nothing served", &Agent{}, &State{}, StatusDegraded},
+		{
+			"version still provisioning",
+			&Agent{ServedVersion: "1"},
+			&State{InFlight: &InFlightVersion{Version: "2"}},
+			StatusDegraded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deploymentStatus(tt.agent, tt.prior); got != tt.want {
+				t.Errorf("deploymentStatus = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentResourcesReportsTheServedVersion(t *testing.T) {
+	got := agentResources(&Agent{Name: "a", ServedVersion: "3"}, &State{})
+
+	if len(got) != 2 {
+		t.Fatalf("resources = %d, want the agent and its served version", len(got))
+	}
+	if got[0].Status != ResourceHealthy {
+		t.Errorf("agent status = %q, want %q", got[0].Status, ResourceHealthy)
+	}
+	if !containsSubstring([]string{got[1].Detail}, "3") {
+		t.Errorf("served version detail = %q, want it to name version 3", got[1].Detail)
+	}
+}
+
+func TestAgentResourcesFlagsAnUnservedAgent(t *testing.T) {
+	got := agentResources(&Agent{Name: "a"}, &State{})
+
+	if got[1].Status != ResourceUnhealthy {
+		t.Errorf("served version status = %q, want %q", got[1].Status, ResourceUnhealthy)
+	}
+}
+
+// An in-flight version means the endpoint is serving something older than the
+// deploy intended, which the operator needs to see.
+func TestAgentResourcesFlagsAnInFlightVersion(t *testing.T) {
+	prior := &State{InFlight: &InFlightVersion{Version: "4"}}
+	got := agentResources(&Agent{Name: "a", ServedVersion: "3"}, prior)
+
+	if got[1].Status != ResourceUnhealthy {
+		t.Errorf("served version status = %q, want %q", got[1].Status, ResourceUnhealthy)
+	}
+	if !containsSubstring([]string{got[1].Detail}, "4") {
+		t.Errorf("detail = %q, want it to name the unfinished version", got[1].Detail)
+	}
+}
+
+func TestProjectEndpoint(t *testing.T) {
+	got := projectEndpoint(&Config{Account: "acct", Project: "proj"})
+
+	want := "https://acct.services.ai.azure.com/api/projects/proj"
+	if got != want {
+		t.Errorf("projectEndpoint = %q, want %q", got, want)
+	}
+}
