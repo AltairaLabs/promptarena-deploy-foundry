@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -119,4 +121,164 @@ func TestBindingDescriptionWithoutAnIdentity(t *testing.T) {
 // silent when everything is supported.
 func TestWarnUnsupportedToolsWithNothingUnsupported(t *testing.T) {
 	warnUnsupportedTools(nil)
+}
+
+// fakeTurnConversation replays canned output for one turn.
+type fakeTurnConversation struct {
+	reply   string
+	askErr  error
+	chunks  []sdk.StreamChunk
+	closed  bool
+	gotText string
+}
+
+func (f *fakeTurnConversation) Ask(_ context.Context, message string) (string, error) {
+	f.gotText = message
+	return f.reply, f.askErr
+}
+
+func (f *fakeTurnConversation) StreamAsk(_ context.Context, message string) <-chan sdk.StreamChunk {
+	f.gotText = message
+	ch := make(chan sdk.StreamChunk, len(f.chunks))
+	for _, c := range f.chunks {
+		ch <- c
+	}
+	close(ch)
+	return ch
+}
+
+func (f *fakeTurnConversation) Close() error {
+	f.closed = true
+	return nil
+}
+
+func openerFor(conv turnConversation, err error) turnOpener {
+	return func(*invocationRequest) (turnConversation, error) {
+		if err != nil {
+			return nil, err
+		}
+		return conv, nil
+	}
+}
+
+func TestNewTurnFuncReturnsTheReply(t *testing.T) {
+	conv := &fakeTurnConversation{reply: "Paris"}
+
+	got, err := newTurnFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "capital?"})
+	if err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if got != "Paris" {
+		t.Errorf("reply = %q, want Paris", got)
+	}
+	if conv.gotText != "capital?" {
+		t.Errorf("sent %q, want the request's message", conv.gotText)
+	}
+}
+
+// Every turn opens its own conversation, so every turn must close it or a
+// long-lived session leaks one per request.
+func TestNewTurnFuncClosesTheConversation(t *testing.T) {
+	conv := &fakeTurnConversation{reply: "x"}
+
+	if _, err := newTurnFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "hi"}); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if !conv.closed {
+		t.Error("conversation was not closed")
+	}
+}
+
+// A failed turn must name the binding, because Azure's own message does not.
+func TestNewTurnFuncNamesTheBindingOnFailure(t *testing.T) {
+	setBindingDescription("https://ep", "openai", "dep", "id")
+	conv := &fakeTurnConversation{askErr: errors.New("404")}
+
+	_, err := newTurnFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "hi"})
+	if err == nil {
+		t.Fatal("turn succeeded despite a send failure")
+	}
+	if !strings.Contains(err.Error(), "dep") {
+		t.Errorf("err = %v, want it to name the deployment", err)
+	}
+}
+
+func TestNewTurnFuncReportsAnOpenFailure(t *testing.T) {
+	_, err := newTurnFunc(openerFor(nil, errors.New("no pack")))(
+		context.Background(), &invocationRequest{Message: "hi"})
+	if err == nil {
+		t.Fatal("turn succeeded despite an open failure")
+	}
+}
+
+func TestNewStreamFuncEmitsTextChunks(t *testing.T) {
+	conv := &fakeTurnConversation{chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkText, Text: "Hel"},
+		{Type: sdk.ChunkText, Text: "lo"},
+	}}
+
+	chunks, errs := newStreamFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "hi"})
+
+	var got string
+	for c := range chunks {
+		got += c
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if got != "Hello" {
+		t.Errorf("streamed %q, want Hello", got)
+	}
+}
+
+// Only text reaches the caller: tool and empty chunks are pipeline detail the
+// invocations contract does not carry.
+func TestNewStreamFuncSkipsNonTextChunks(t *testing.T) {
+	conv := &fakeTurnConversation{chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkToolCall},
+		{Type: sdk.ChunkText, Text: ""},
+		{Type: sdk.ChunkText, Text: "only"},
+	}}
+
+	chunks, _ := newStreamFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "hi"})
+
+	var got string
+	for c := range chunks {
+		got += c
+	}
+	if got != "only" {
+		t.Errorf("streamed %q, want only", got)
+	}
+}
+
+func TestNewStreamFuncPropagatesAChunkError(t *testing.T) {
+	conv := &fakeTurnConversation{chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkText, Text: "partial"},
+		{Error: errors.New("died midway")},
+	}}
+
+	chunks, errs := newStreamFunc(openerFor(conv, nil))(
+		context.Background(), &invocationRequest{Message: "hi"})
+	for range chunks { //nolint:revive // draining is the point
+	}
+
+	if err := <-errs; err == nil {
+		t.Fatal("stream reported success despite a chunk error")
+	}
+}
+
+func TestNewStreamFuncReportsAnOpenFailure(t *testing.T) {
+	chunks, errs := newStreamFunc(openerFor(nil, errors.New("no pack")))(
+		context.Background(), &invocationRequest{Message: "hi"})
+	for range chunks { //nolint:revive // draining is the point
+	}
+
+	if err := <-errs; err == nil {
+		t.Fatal("stream reported success despite an open failure")
+	}
 }

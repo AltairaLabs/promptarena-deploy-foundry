@@ -42,35 +42,78 @@ func conversationOptions(base []sdk.Option, req *invocationRequest) []sdk.Option
 	return append(opts, sdk.WithConversationID(req.ConversationID))
 }
 
-// newTurnFunc returns a turnFunc that opens a fresh conversation per request.
-// A conversation per request keeps requests isolated, which matches Foundry's
-// per-session sandbox model.
-func newTurnFunc(
+// turnConversation is the slice of a conversation one turn uses.
+//
+// It is narrowed to the reply text rather than exposing sdk.Response, whose
+// fields are unexported and so cannot be constructed by a test. The runtime
+// only ever wants the text.
+type turnConversation interface {
+	Ask(ctx context.Context, message string) (string, error)
+	StreamAsk(ctx context.Context, message string) <-chan sdk.StreamChunk
+	Close() error
+}
+
+// turnOpener starts a conversation for one request.
+type turnOpener func(req *invocationRequest) (turnConversation, error)
+
+// sdkConversation adapts a real conversation to turnConversation.
+type sdkConversation struct{ conv *sdk.Conversation }
+
+// Ask runs one unary turn and returns the reply text.
+func (c sdkConversation) Ask(ctx context.Context, message string) (string, error) {
+	resp, err := c.conv.Send(ctx, message)
+	if err != nil {
+		return "", err
+	}
+	return resp.Text(), nil
+}
+
+// StreamAsk runs one streaming turn.
+func (c sdkConversation) StreamAsk(ctx context.Context, message string) <-chan sdk.StreamChunk {
+	return c.conv.Stream(ctx, message)
+}
+
+// Close releases the conversation.
+func (c sdkConversation) Close() error { return c.conv.Close() }
+
+// newSDKOpener opens a real conversation per request. A conversation per
+// request keeps requests isolated, which matches Foundry's per-session sandbox
+// model.
+func newSDKOpener(
 	packFile, agentName string, opts []sdk.Option, specs map[string]toolSpec,
-) turnFunc {
-	return func(ctx context.Context, req *invocationRequest) (string, error) {
+) turnOpener {
+	return func(req *invocationRequest) (turnConversation, error) {
 		conv, err := sdk.Open(packFile, agentName, conversationOptions(opts, req)...)
 		if err != nil {
-			return "", fmt.Errorf("open conversation: %w", err)
+			return nil, fmt.Errorf("open conversation: %w", err)
 		}
 		warnUnsupportedTools(registerToolExecutors(conv, specs))
+		return sdkConversation{conv: conv}, nil
+	}
+}
 
-		resp, err := conv.Send(ctx, req.text())
+// newTurnFunc returns a turnFunc that runs one unary turn per request.
+func newTurnFunc(open turnOpener) turnFunc {
+	return func(ctx context.Context, req *invocationRequest) (string, error) {
+		conv, err := open(req)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = conv.Close() }()
+
+		out, err := conv.Ask(ctx, req.text())
 		if err != nil {
 			// Name the binding that failed. A bare "404 Resource not found"
 			// from Azure OpenAI is indistinguishable between a wrong endpoint,
 			// a wrong deployment name, and an identity without access.
 			return "", fmt.Errorf("send (%s): %w", describeBinding(), err)
 		}
-		return resp.Text(), nil
+		return out, nil
 	}
 }
 
-// newStreamFunc returns a streamFunc that opens a fresh conversation per
-// request and streams the turn's text chunks.
-func newStreamFunc(
-	packFile, agentName string, opts []sdk.Option, specs map[string]toolSpec,
-) streamFunc {
+// newStreamFunc returns a streamFunc that streams one turn's text chunks.
+func newStreamFunc(open turnOpener) streamFunc {
 	return func(ctx context.Context, req *invocationRequest) (<-chan string, <-chan error) {
 		out := make(chan string)
 		errCh := make(chan error, 1)
@@ -79,7 +122,7 @@ func newStreamFunc(
 			defer close(out)
 			defer close(errCh)
 
-			if err := streamTurn(ctx, packFile, agentName, opts, specs, req, out); err != nil {
+			if err := streamTurn(ctx, open, req, out); err != nil {
 				errCh <- err
 			}
 		}()
@@ -90,20 +133,20 @@ func newStreamFunc(
 
 // streamTurn runs one streaming turn, sending each text chunk to out.
 func streamTurn(
-	ctx context.Context, packFile, agentName string,
-	opts []sdk.Option, specs map[string]toolSpec,
-	req *invocationRequest, out chan<- string,
+	ctx context.Context, open turnOpener, req *invocationRequest, out chan<- string,
 ) error {
-	conv, err := sdk.Open(packFile, agentName, conversationOptions(opts, req)...)
+	conv, err := open(req)
 	if err != nil {
-		return fmt.Errorf("open conversation: %w", err)
+		return err
 	}
-	warnUnsupportedTools(registerToolExecutors(conv, specs))
+	defer func() { _ = conv.Close() }()
 
-	for chunk := range conv.Stream(ctx, req.text()) {
+	for chunk := range conv.StreamAsk(ctx, req.text()) {
 		if chunk.Error != nil {
 			return chunk.Error
 		}
+		// Only text reaches the caller; tool and media chunks are pipeline
+		// detail the invocations contract does not carry.
 		if chunk.Type != sdk.ChunkText || chunk.Text == "" {
 			continue
 		}
