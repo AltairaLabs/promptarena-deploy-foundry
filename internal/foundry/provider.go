@@ -46,7 +46,7 @@ func (p *Provider) GetProviderInfo(_ context.Context) (*deploy.ProviderInfo, err
 	return &deploy.ProviderInfo{
 		Name:         ProviderName,
 		Version:      Version,
-		Capabilities: []string{"validate", "plan"},
+		Capabilities: []string{"validate", "plan", "apply", "destroy", "status"},
 		ConfigSchema: configSchema,
 	}, nil
 }
@@ -82,13 +82,16 @@ func (p *Provider) ValidateConfig(
 
 // planContext is everything Plan derives from a request before diffing.
 type planContext struct {
-	Cfg        *Config
-	AgentName  string
-	Members    []string
-	Prior      *State
-	PackHash   string
-	ConfigHash string
-	Delivery   PackDelivery
+	Cfg           *Config
+	AgentName     string
+	PackID        string
+	Members       []string
+	Prior         *State
+	PackHash      string
+	ConfigHash    string
+	Bindings      []ResolvedBinding
+	ToolSpecsJSON string
+	Delivery      PackDelivery
 }
 
 // gatherPlanInput validates the request and derives everything buildPlan needs
@@ -138,13 +141,16 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 	}
 
 	return &planContext{
-		Cfg:        cfg,
-		AgentName:  sanitizeAgentName(id),
-		Members:    members,
-		Prior:      prior,
-		PackHash:   hashPack(req.PackJSON),
-		ConfigHash: configHash,
-		Delivery:   decidePackDelivery(req.PackJSON, cfg),
+		Cfg:           cfg,
+		AgentName:     sanitizeAgentName(id),
+		PackID:        id,
+		Members:       members,
+		Prior:         prior,
+		PackHash:      hashPack(req.PackJSON),
+		ConfigHash:    configHash,
+		Bindings:      resolved,
+		ToolSpecsJSON: toolSpecs,
+		Delivery:      decidePackDelivery(req.PackJSON, cfg),
 	}, nil
 }
 
@@ -248,27 +254,6 @@ func driftedState(prior *State, lookupErr error) (verified *State, drift []strin
 
 	return &corrected, []string{fmt.Sprintf(
 		"agent %q is recorded in state but no longer exists; it will be recreated", name)}
-}
-
-// Apply is implemented in phase 2.
-func (p *Provider) Apply(
-	_ context.Context, _ *deploy.PlanRequest, _ deploy.ApplyCallback,
-) (string, error) {
-	return "", fmt.Errorf("apply: %w", ErrNotImplemented)
-}
-
-// Destroy is implemented in phase 2.
-func (p *Provider) Destroy(
-	_ context.Context, _ *deploy.DestroyRequest, _ deploy.DestroyCallback,
-) error {
-	return fmt.Errorf("destroy: %w", ErrNotImplemented)
-}
-
-// Status is implemented in phase 2.
-func (p *Provider) Status(
-	_ context.Context, _ *deploy.StatusRequest,
-) (*deploy.StatusResponse, error) {
-	return nil, fmt.Errorf("status: %w", ErrNotImplemented)
 }
 
 // Import is deferred; see the phasing in the design of record.

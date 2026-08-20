@@ -34,7 +34,7 @@ func TestGetProviderInfo(t *testing.T) {
 	}
 
 	// Capabilities must reflect what actually works end to end.
-	want := map[string]bool{"validate": true, "plan": true}
+	want := map[string]bool{"validate": true, "plan": true, "apply": true, "destroy": true, "status": true}
 	for _, c := range info.Capabilities {
 		if !want[c] {
 			t.Errorf("Capabilities includes %q, which is not implemented", c)
@@ -281,26 +281,11 @@ func TestPlanSkipsVerificationOnFirstDeploy(t *testing.T) {
 	}
 }
 
-func TestLifecycleNotImplemented(t *testing.T) {
-	ctx := context.Background()
-	p := NewProvider()
-
-	tests := []struct {
-		name string
-		call func() error
-	}{
-		{"apply", func() error { _, err := p.Apply(ctx, nil, nil); return err }},
-		{"destroy", func() error { return p.Destroy(ctx, nil, nil) }},
-		{"status", func() error { _, err := p.Status(ctx, nil); return err }},
-		{"import", func() error { _, err := p.Import(ctx, nil); return err }},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.call(); !errors.Is(err, ErrNotImplemented) {
-				t.Errorf("err = %v, want ErrNotImplemented", err)
-			}
-		})
+// Import is the only lifecycle operation still unbuilt.
+func TestImportNotImplemented(t *testing.T) {
+	_, err := NewProvider().Import(context.Background(), &deploy.ImportRequest{})
+	if !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("err = %v, want ErrNotImplemented", err)
 	}
 }
 

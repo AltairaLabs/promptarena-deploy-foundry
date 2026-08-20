@@ -117,7 +117,7 @@ func TestRESTCreateAgentSendsHostedDefinition(t *testing.T) {
 		Protocols:          []string{ProtocolInvocations, ProtocolResponses},
 		IdleTimeoutMinutes: 20,
 		Env:                map[string]string{"PROMPTPACK_PACK": "{}"},
-		Tags:               map[string]string{"team": "platform"},
+		Metadata:           map[string]string{"team": "platform"},
 	}
 	if _, err := c.CreateAgent(context.Background(), spec); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
@@ -125,6 +125,20 @@ func TestRESTCreateAgentSendsHostedDefinition(t *testing.T) {
 
 	if body["name"] != "support-pack" {
 		t.Errorf("name = %v, want support-pack", body["name"])
+	}
+
+	// Verified against a live project: the agents API stores key/value data
+	// under "metadata" and silently discards a "tags" field, so sending tags
+	// loses the managed attribution without any error.
+	meta, ok := body["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("body has no metadata object: %v", body)
+	}
+	if meta["team"] != "platform" {
+		t.Errorf("metadata.team = %v, want platform", meta["team"])
+	}
+	if _, present := body["tags"]; present {
+		t.Errorf("body sent a tags field, which the API ignores: %v", body["tags"])
 	}
 	def, ok := body["definition"].(map[string]any)
 	if !ok {
@@ -286,8 +300,13 @@ func TestRESTDeleteAgentPropagatesOtherErrors(t *testing.T) {
 
 func TestRESTListAgents(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		// Envelope verified against a live project: the list API is
+		// OpenAI-shaped ({"data":[...],"has_more":...,"object":"list"}), not
+		// ARM-shaped ({"value":[...]}).
 		writeJSON(t, w, http.StatusOK, map[string]any{
-			"value": []any{
+			"object":   "list",
+			"has_more": false,
+			"data": []any{
 				map[string]any{"name": "a"},
 				map[string]any{"name": "b"},
 			},
@@ -392,12 +411,15 @@ func TestRESTGetAgentDistinguishesAMissingProject(t *testing.T) {
 	}
 }
 
+// The real agent-miss body, verified against a live project. Note the code is
+// "not_found", where a missing project answers "ResourceNotFound".
 func TestRESTGetAgentMissingAgentStillReadsAsNotFound(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
-				"code":    "ResourceNotFound",
-				"message": "The agent 'support-pack' was not found.",
+				"code":    "not_found",
+				"type":    "error",
+				"message": "Agent support-pack doesn't exist [Request ID: abc123]",
 			},
 		})
 	})
@@ -405,6 +427,32 @@ func TestRESTGetAgentMissingAgentStillReadsAsNotFound(t *testing.T) {
 	_, err := c.GetAgent(context.Background(), "support-pack")
 	if !errors.Is(err, ErrAgentNotFound) {
 		t.Errorf("err = %v, want ErrAgentNotFound", err)
+	}
+	if errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("err = %v, want a missing agent not to read as a missing project", err)
+	}
+}
+
+// The error code is authoritative and the prose is not. This body is
+// synthetic — it asserts the precedence rule rather than a shape Foundry is
+// known to return — because prose is the part most likely to be reworded, and
+// a rewording must never flip a missing agent into a missing project.
+func TestRESTGetAgentCodeBeatsMessageText(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{
+				"code":    "not_found",
+				"message": "Agent x doesn't exist; the project does not exist check did not apply",
+			},
+		})
+	})
+
+	_, err := c.GetAgent(context.Background(), "x")
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("err = %v, want ErrAgentNotFound", err)
+	}
+	if errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("err = %v, want the code to win over the message prose", err)
 	}
 }
 

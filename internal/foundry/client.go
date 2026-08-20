@@ -27,8 +27,9 @@ type Agent struct {
 	Name string
 	// ServedVersion is the version the endpoint's selector currently points at.
 	ServedVersion string
-	// Tags are the resource tags, including any the user configured.
-	Tags map[string]string
+	// Metadata is the agent's key/value data, including any the user configured
+	// under the config's `tags` key and the adapter's managed entries.
+	Metadata map[string]string
 }
 
 // AgentVersion is one immutable version of an agent.
@@ -55,8 +56,11 @@ type AgentSpec struct {
 	IdleTimeoutMinutes int
 	// Env becomes definition.environment_variables. The client emits it in
 	// sorted key order so requests are deterministic.
-	Env  map[string]string
-	Tags map[string]string
+	Env map[string]string
+	// Metadata becomes the create body's "metadata". The config calls this
+	// `tags`, which is the familiar Azure word, but the agents API stores it as
+	// metadata and ignores a tags field outright.
+	Metadata map[string]string
 }
 
 // foundryClient abstracts the Foundry data-plane control operations.

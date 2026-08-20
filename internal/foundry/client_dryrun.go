@@ -30,7 +30,7 @@ func newDryRunClient() *dryRunClient {
 
 // CreateAgent records the agent shell.
 func (c *dryRunClient) CreateAgent(_ context.Context, spec *AgentSpec) (*Agent, error) {
-	agent := &Agent{Name: spec.Name, Tags: maps.Clone(spec.Tags)}
+	agent := &Agent{Name: spec.Name, Metadata: maps.Clone(spec.Metadata)}
 	c.agents[spec.Name] = agent
 	return cloneAgent(agent), nil
 }
@@ -102,6 +102,6 @@ func (c *dryRunClient) DeleteAgent(_ context.Context, name string) error {
 // records by holding onto a returned pointer.
 func cloneAgent(a *Agent) *Agent {
 	out := *a
-	out.Tags = maps.Clone(a.Tags)
+	out.Metadata = maps.Clone(a.Metadata)
 	return &out
 }

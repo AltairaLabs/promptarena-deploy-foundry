@@ -99,7 +99,7 @@ type (
 	agentWire struct {
 		Name          string             `json:"name"`
 		AgentEndpoint *agentEndpointWire `json:"agent_endpoint,omitempty"`
-		Tags          map[string]string  `json:"tags,omitempty"`
+		Metadata      map[string]string  `json:"metadata,omitempty"`
 	}
 
 	agentEndpointWire struct {
@@ -116,10 +116,15 @@ type (
 		TrafficPercentage int    `json:"traffic_percentage"`
 	}
 
+	// createAgentWire is the create body for an agent or one of its versions.
+	//
+	// Key/value data goes under "metadata". Verified against a live project: a
+	// "tags" field is accepted by the API and then silently discarded, which
+	// loses the managed attribution with no error to notice.
 	createAgentWire struct {
 		Name       string            `json:"name"`
 		Definition definitionWire    `json:"definition"`
-		Tags       map[string]string `json:"tags,omitempty"`
+		Metadata   map[string]string `json:"metadata,omitempty"`
 	}
 
 	definitionWire struct {
@@ -148,11 +153,18 @@ type (
 	}
 
 	errorWire struct {
+		Code    string `json:"code"`
 		Message string `json:"message"`
 	}
 
+	// listAgentsWire is the list envelope. Verified against a live project:
+	// this API is OpenAI-shaped, so the collection is under "data" with a
+	// "has_more" cursor flag — not the ARM-style "value" the management plane
+	// uses elsewhere in Azure.
 	listAgentsWire struct {
-		Value []agentWire `json:"value"`
+		Object  string      `json:"object"`
+		Data    []agentWire `json:"data"`
+		HasMore bool        `json:"has_more"`
 	}
 )
 
@@ -164,8 +176,8 @@ func buildCreateBody(spec *AgentSpec) createAgentWire {
 	}
 
 	return createAgentWire{
-		Name: spec.Name,
-		Tags: spec.Tags,
+		Name:     spec.Name,
+		Metadata: spec.Metadata,
 		Definition: definitionWire{
 			Kind:                   hostedAgentKind,
 			ContainerConfiguration: containerWire{Image: spec.Image},
@@ -204,7 +216,8 @@ func (c *restClient) do(
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer closeBody(resp)
+	// Deliberately not closed here: the response is handed to the caller, which
+	// owns closing it.
 	return resp, nil
 }
 
@@ -383,9 +396,9 @@ func (c *restClient) ListAgents(ctx context.Context) ([]Agent, error) {
 		return nil, fmt.Errorf("decode agent list: %w", err)
 	}
 
-	agents := make([]Agent, 0, len(wire.Value))
-	for i := range wire.Value {
-		agents = append(agents, *toAgent(&wire.Value[i]))
+	agents := make([]Agent, 0, len(wire.Data))
+	for i := range wire.Data {
+		agents = append(agents, *toAgent(&wire.Data[i]))
 	}
 	return agents, nil
 }
@@ -407,16 +420,22 @@ func (c *restClient) DeleteAgent(ctx context.Context, name string) error {
 	return nil
 }
 
-// projectMissingMarker is the phrase Foundry uses when the project in the URL
-// does not exist. Verified against a real account, which answers
-// {"error":{"code":"ResourceNotFound","message":"The project does not exist."}}
+// 404 discriminators, both verified against a live project. Foundry answers a
+// missing agent and a missing project with the same status but different codes:
 //
-// Matching on message text is normally the wrong thing to do, and it is done
-// here only because the API gives nothing better: the code is the generic
-// ResourceNotFound for a missing project and a missing agent alike. If the
-// phrasing changes this degrades to the old behavior — the resource-level
-// error — rather than breaking.
-const projectMissingMarker = "project does not exist"
+//	agent   {"error":{"code":"not_found","message":"Agent x doesn't exist [Request ID: …]"}}
+//	project {"error":{"code":"ResourceNotFound","message":"The project does not exist."}}
+//
+// The codes differ because the two come from different layers — the gateway
+// rejects an unknown project before the request reaches the agents API at all.
+const (
+	// agentNotFoundCode is what the agents API returns for its own misses.
+	agentNotFoundCode = "not_found"
+	// projectMissingMarker is a fallback, consulted only when the code is not
+	// the agents API's own. Prose is the part most likely to be reworded, so it
+	// is never allowed to override the code.
+	projectMissingMarker = "project does not exist"
+)
 
 // notFoundError decides what a 404 actually means. resourceErr is returned for
 // an ordinary missing agent or version; a missing project is reported as
@@ -435,6 +454,12 @@ func notFoundError(resp *http.Response, resourceErr error) error {
 	}
 	// An empty or unparseable body still means the resource is not there.
 	if unmarshalErr := json.Unmarshal(body, &envelope); unmarshalErr != nil {
+		return resourceErr
+	}
+
+	// The agents API answering with its own not-found code is conclusive: the
+	// project was reached, and the agent within it is genuinely absent.
+	if envelope.Error.Code == agentNotFoundCode {
 		return resourceErr
 	}
 
@@ -457,7 +482,7 @@ func closeBody(resp *http.Response) {
 
 // toAgent converts the wire shape into the adapter's domain type.
 func toAgent(w *agentWire) *Agent {
-	agent := &Agent{Name: w.Name, Tags: w.Tags}
+	agent := &Agent{Name: w.Name, Metadata: w.Metadata}
 	if w.AgentEndpoint == nil || w.AgentEndpoint.VersionSelector == nil {
 		return agent
 	}

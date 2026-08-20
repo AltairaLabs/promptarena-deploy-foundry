@@ -10,6 +10,11 @@ import (
 // changes an older adapter cannot read.
 const StateVersion = 1
 
+// maxPriorVersions bounds the rollback history. Versions are immutable and
+// cheap to record, but state travels in every request, so the list is capped
+// rather than grown without limit.
+const maxPriorVersions = 20
+
 // InFlightVersion records a version whose creation was still running when the
 // adapter stopped waiting. A later apply reconciles it rather than orphaning
 // the resource or creating a duplicate alongside it.
@@ -94,6 +99,24 @@ func parseState(raw string) (*State, error) {
 	}
 
 	return &s, nil
+}
+
+// recordVersion promotes version to the served version, pushing the one it
+// replaces onto the history.
+//
+// The history makes a rollback a served-version PATCH rather than an image
+// rebuild, which is the whole reason immutable versions are worth tracking.
+func (s *State) recordVersion(version string) {
+	if s.ServedVersion == version {
+		return
+	}
+	if s.ServedVersion != "" {
+		s.PriorVersions = append([]string{s.ServedVersion}, s.PriorVersions...)
+		if len(s.PriorVersions) > maxPriorVersions {
+			s.PriorVersions = s.PriorVersions[:maxPriorVersions]
+		}
+	}
+	s.ServedVersion = version
 }
 
 // Marshal serializes the state, re-emitting any unknown fields it preserved.
