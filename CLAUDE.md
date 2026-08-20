@@ -91,6 +91,17 @@ These are not preferences — the platform enforces them:
   grant per agent. The project route also means the Responses API, not Chat
   Completions — `sdk.WithAzure` forces the legacy path, so the provider is
   built directly instead.
+- **Voice cannot use the project proxy.** The proxy serves `/responses` but
+  answers 404 for `/audio/speech` and `/audio/transcriptions`; both return 200
+  at the account endpoint. So a pack with stt/tts bindings needs the agent
+  identity granted `Cognitive Services OpenAI User` at account scope, which is
+  the manual step the LLM path deliberately avoids. Measured, not assumed.
+- **The invocations_ws relay is verified working from a Go container.** The
+  upgrade succeeds through the platform, text and binary frames relay verbatim
+  (a 640-byte frame — 20 ms PCM at 16 kHz — arrives intact), the session binds
+  through `?agent_session_id=`, and the platform strips `Authorization` after
+  validating it. The container also receives `x-agent-user-id` with the
+  caller's Entra object id, which is what per-user isolation would key on.
 - **`/readiness` is our job**, but it does not gate deployment. Microsoft's
   Python and C# protocol libraries provide it; a Go container must serve it
   itself. Measured against a live project: an image that pulls but listens on
