@@ -15,10 +15,6 @@ import (
 // Version is the runtime build version, set at link time by the Dockerfile.
 var Version = "dev"
 
-// packDir is where the resolved pack file is written inside the container.
-// Foundry sets HOME to /home/session; /tmp is writable and session-scoped.
-const packDir = "/tmp"
-
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	if err := run(context.Background(), log); err != nil {
@@ -33,7 +29,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	packFile, err := resolvePackFile(cfg, packDir)
+	packFile, err := resolvePackFile(cfg, packDirCandidates(os.Getenv))
 	if err != nil {
 		return fmt.Errorf("resolve pack: %w", err)
 	}

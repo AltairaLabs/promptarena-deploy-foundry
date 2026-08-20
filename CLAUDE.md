@@ -76,6 +76,14 @@ These are not preferences — the platform enforces them:
 - **Agent versions are immutable.** Apply creates a version and then PATCHes
   the served-version selector; traffic splitting is not supported (one
   `FixedRatio` rule at 100%).
+- **Go is not a supported container language — this is the project's central
+  open risk.** Microsoft supports Python and C# only, and the docs state Go
+  support is "coming soon". The platform's container contract is documented
+  only through those protocol libraries (`AgentHost`, `RegisterProtocol`,
+  `InvocationAgentServerHost`); no raw HTTP contract is published. A hand-rolled
+  Go container that serves `/readiness` and `/invocations` correctly in isolation
+  still never becomes ready in the sandbox, and container startup logs are not
+  exposed through any API, so the missing piece cannot be observed directly.
 - **`/readiness` is our job**, but it does not gate deployment. Microsoft's
   Python and C# protocol libraries provide it; a Go container must serve it
   itself. Measured against a live project: an image that pulls but listens on
