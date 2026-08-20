@@ -47,6 +47,10 @@ const configSchema = `{
       "maximum": 60,
       "description": "Session idle timeout before the sandbox is reclaimed (default 15)"
     },
+    "azure_endpoint": {
+      "type": "string",
+      "description": "Azure OpenAI endpoint the deployed agent binds providers against; derived from account when unset"
+    },
     "staging_container": {
       "type": "string",
       "description": "Azure Blob container URL for packs too large to inline as environment variables"

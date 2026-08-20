@@ -97,13 +97,21 @@ func newRESTClient(
 // plan, apply and state.
 type (
 	agentWire struct {
-		Name          string             `json:"name"`
-		AgentEndpoint *agentEndpointWire `json:"agent_endpoint,omitempty"`
-		Metadata      map[string]string  `json:"metadata,omitempty"`
+		Name             string             `json:"name"`
+		AgentEndpoint    *agentEndpointWire `json:"agent_endpoint,omitempty"`
+		Metadata         map[string]string  `json:"metadata,omitempty"`
+		InstanceIdentity *identityWire      `json:"instance_identity,omitempty"`
+	}
+
+	// identityWire is the agent's managed identity, minted with the agent.
+	identityWire struct {
+		PrincipalID string `json:"principal_id"`
+		ClientID    string `json:"client_id"`
 	}
 
 	agentEndpointWire struct {
 		VersionSelector *versionSelectorWire `json:"version_selector,omitempty"`
+		Protocols       []string             `json:"protocols,omitempty"`
 	}
 
 	versionSelectorWire struct {
@@ -342,8 +350,17 @@ func (c *restClient) GetVersion(ctx context.Context, name, version string) (*Age
 	return toVersion(&wire), nil
 }
 
-// SetServedVersion points the endpoint selector at one version at full traffic.
-func (c *restClient) SetServedVersion(ctx context.Context, name, version string) error {
+// SetEndpoint points the selector at one version at full traffic and declares
+// the protocols the endpoint exposes.
+//
+// The protocol list is not inherited from the version's protocol_versions and
+// defaults to ["responses"]. Verified against a live project: an agent whose
+// version declares only invocations still gets a responses endpoint, so
+// omitting this leaves the deployment unreachable over the protocol it
+// actually serves.
+func (c *restClient) SetEndpoint(
+	ctx context.Context, name, version string, protocols []string,
+) error {
 	body := agentWire{
 		AgentEndpoint: &agentEndpointWire{
 			VersionSelector: &versionSelectorWire{
@@ -353,6 +370,7 @@ func (c *restClient) SetServedVersion(ctx context.Context, name, version string)
 					TrafficPercentage: fullTrafficPercentage,
 				}},
 			},
+			Protocols: protocols,
 		},
 	}
 
@@ -483,6 +501,9 @@ func closeBody(resp *http.Response) {
 // toAgent converts the wire shape into the adapter's domain type.
 func toAgent(w *agentWire) *Agent {
 	agent := &Agent{Name: w.Name, Metadata: w.Metadata}
+	if w.InstanceIdentity != nil {
+		agent.PrincipalID = w.InstanceIdentity.PrincipalID
+	}
 	if w.AgentEndpoint == nil || w.AgentEndpoint.VersionSelector == nil {
 		return agent
 	}

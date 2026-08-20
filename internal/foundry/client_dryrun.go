@@ -66,8 +66,12 @@ func (c *dryRunClient) GetVersion(_ context.Context, name, version string) (*Age
 	return nil, fmt.Errorf("agent %q version %q: %w", name, version, ErrVersionNotFound)
 }
 
-// SetServedVersion promotes a version on a simulated agent.
-func (c *dryRunClient) SetServedVersion(_ context.Context, name, version string) error {
+// SetEndpoint promotes a version on a simulated agent and records the
+// protocols the endpoint would expose.
+func (c *dryRunClient) SetEndpoint(
+	_ context.Context, name, version string, protocols []string,
+) error {
+	_ = protocols
 	agent, ok := c.agents[name]
 	if !ok {
 		return fmt.Errorf("agent %q: %w", name, ErrAgentNotFound)

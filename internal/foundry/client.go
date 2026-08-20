@@ -30,6 +30,10 @@ type Agent struct {
 	// Metadata is the agent's key/value data, including any the user configured
 	// under the config's `tags` key and the adapter's managed entries.
 	Metadata map[string]string
+	// PrincipalID is the agent's own managed identity. It is created with the
+	// agent and stable across every version, so anything granted to it survives
+	// a redeploy.
+	PrincipalID string
 }
 
 // AgentVersion is one immutable version of an agent.
@@ -80,9 +84,15 @@ type foundryClient interface {
 	// GetVersion fetches one version, returning a wrapped ErrVersionNotFound
 	// when it does not exist.
 	GetVersion(ctx context.Context, name, version string) (*AgentVersion, error)
-	// SetServedVersion points the endpoint's selector at version at 100%.
-	// Traffic splitting is not supported by the platform.
-	SetServedVersion(ctx context.Context, name, version string) error
+	// SetEndpoint configures the agent's endpoint: it points the version
+	// selector at version at 100% (traffic splitting is not supported) and
+	// declares which protocols the endpoint exposes.
+	//
+	// Both travel in one patch because they are one concern. The protocol list
+	// is separate from the version's own protocol_versions and defaults to
+	// ["responses"], so an endpoint left alone exposes a contract the container
+	// may not serve.
+	SetEndpoint(ctx context.Context, name, version string, protocols []string) error
 	// ListAgents returns every agent in the project.
 	ListAgents(ctx context.Context) ([]Agent, error)
 	// DeleteAgent removes an agent. Deleting one that is already gone is not an

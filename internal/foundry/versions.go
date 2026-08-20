@@ -26,6 +26,10 @@ const (
 	envToolSpecs      = "PROMPTPACK_TOOL_SPECS"
 	envTracingEnabled = "PROMPTPACK_TRACING_ENABLED"
 	envOTLPEndpoint   = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	// envAzureEndpoint is the Azure OpenAI endpoint the runtime binds providers
+	// against. Foundry reserves only AGENT_* and FOUNDRY_*, so there is no
+	// reserved-name collision to work around here.
+	envAzureEndpoint = "PROMPTPACK_AZURE_ENDPOINT"
 )
 
 // Managed tag keys and values. These identify what the adapter owns, so they
@@ -79,7 +83,8 @@ func buildAgentEnv(in *specInput) (vars map[string]string, errors []string) {
 	}
 
 	env := map[string]string{
-		envProviders: string(encodedBindings),
+		envProviders:     string(encodedBindings),
+		envAzureEndpoint: in.Cfg.azureEndpoint(),
 	}
 
 	if in.ToolSpecsJSON != "" {

@@ -199,3 +199,30 @@ func TestBuildAgentSpecEnvIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// The runtime needs an Azure OpenAI endpoint to bind a provider against.
+// Deriving it from the account means the common case needs no extra config.
+func TestBuildAgentSpecDerivesTheAzureEndpoint(t *testing.T) {
+	spec, errs := buildAgentSpec(baseSpecInput())
+	if len(errs) != 0 {
+		t.Fatalf("buildAgentSpec errors = %v", errs)
+	}
+
+	want := "https://acct.openai.azure.com/"
+	if spec.Env[envAzureEndpoint] != want {
+		t.Errorf("%s = %q, want %q", envAzureEndpoint, spec.Env[envAzureEndpoint], want)
+	}
+}
+
+// An account whose inference endpoint is not the conventional one still has to
+// be deployable, so an explicit value wins.
+func TestBuildAgentSpecHonoursAnExplicitAzureEndpoint(t *testing.T) {
+	in := baseSpecInput()
+	in.Cfg.AzureEndpoint = "https://custom.openai.azure.com/"
+
+	spec, _ := buildAgentSpec(in)
+
+	if spec.Env[envAzureEndpoint] != "https://custom.openai.azure.com/" {
+		t.Errorf("%s = %q, want the override", envAzureEndpoint, spec.Env[envAzureEndpoint])
+	}
+}

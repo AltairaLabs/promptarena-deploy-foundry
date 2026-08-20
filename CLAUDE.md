@@ -76,9 +76,49 @@ These are not preferences — the platform enforces them:
 - **Agent versions are immutable.** Apply creates a version and then PATCHes
   the served-version selector; traffic splitting is not supported (one
   `FixedRatio` rule at 100%).
-- **`/readiness` is our job.** Microsoft's Python and C# protocol libraries
-  provide it; a Go container must serve it or the version never leaves
-  `creating`.
+- **Go is not a supported container language — this is the project's central
+  open risk.** Microsoft supports Python and C# only, and the docs state Go
+  support is "coming soon". The platform's container contract is documented
+  only through those protocol libraries (`AgentHost`, `RegisterProtocol`,
+  `InvocationAgentServerHost`); no raw HTTP contract is published. A hand-rolled
+  Go container that serves `/readiness` and `/invocations` correctly in isolation
+  still never becomes ready in the sandbox, and container startup logs are not
+  exposed through any API, so the missing piece cannot be observed directly.
+- **Inference goes through the project endpoint, never the account endpoint.**
+  Foundry grants an agent implicit model access through its own project, so a
+  deploy needs no RBAC step at all. Calling `{account}.openai.azure.com`
+  directly bypasses that and forces a manual `Cognitive Services OpenAI User`
+  grant per agent. The project route also means the Responses API, not Chat
+  Completions — `sdk.WithAzure` forces the legacy path, so the provider is
+  built directly instead.
+- **Apply grants voice its model access automatically.** The account is found
+  from its name, so no subscription or resource group is needed in config; the
+  assignment is idempotent and the agent identity is stable across versions, so
+  it happens once per agent. A denial is reported with the exact command, never
+  fatal — the agent exists and its text path works.
+- **Voice cannot use the project proxy.** The proxy serves `/responses` but
+  answers 404 for `/audio/speech` and `/audio/transcriptions`; both return 200
+  at the account endpoint. So a pack with stt/tts bindings needs the agent
+  identity granted `Cognitive Services OpenAI User` at account scope, which is
+  the manual step the LLM path deliberately avoids. Measured, not assumed.
+- **The invocations_ws relay is verified working from a Go container.** The
+  upgrade succeeds through the platform, text and binary frames relay verbatim
+  (a 640-byte frame — 20 ms PCM at 16 kHz — arrives intact), the session binds
+  through `?agent_session_id=`, and the platform strips `Authorization` after
+  validating it. The container also receives `x-agent-user-id` with the
+  caller's Entra object id, which is what per-user isolation would key on.
+- **STT must be `whisper`, not `gpt-4o-mini-transcribe`.** PromptKit's STT
+  stage requests `response_format: verbose_json`, which the newer transcribe
+  models reject outright — the pipeline dies mid-turn with an
+  `unsupported_value` error. Whisper accepts it.
+- **`/readiness` is our job**, but it does not gate deployment. Microsoft's
+  Python and C# protocol libraries provide it; a Go container must serve it
+  itself. Measured against a live project: an image that pulls but listens on
+  nothing still reaches `active` and takes 100% of traffic.
+- **`active` means the image pulled, and nothing more.** The platform validates
+  the image at version-create — a bad tag fails with "Container image not
+  found" — but does not start or probe the container until a session exists.
+  A deployment reporting healthy is therefore not evidence that it serves.
 
 ## Go Code Standards
 

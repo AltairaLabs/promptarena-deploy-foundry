@@ -38,6 +38,10 @@ const (
 // httpsScheme prefixes a Blob storage container URL.
 const httpsScheme = "https://"
 
+// azureOpenAIHostSuffix completes the conventional Azure OpenAI endpoint for an
+// account. PromptKit's azure platform expects this form.
+const azureOpenAIHostSuffix = ".openai.azure.com/"
+
 // legalResourcePairs maps each accepted cpu value to the memory value it must
 // be paired with. Foundry offers exactly three immutable pairs; anything else
 // is rejected by the API after the version has been created, so the pairing is
@@ -76,6 +80,11 @@ type Config struct {
 	Memory             string   `json:"memory,omitempty"`
 	Protocols          []string `json:"protocols,omitempty"`
 	IdleTimeoutMinutes int      `json:"idle_timeout_minutes,omitempty"`
+
+	// AzureEndpoint is the Azure OpenAI endpoint the deployed agent's provider
+	// bindings address. Derived from Account when unset; set it explicitly for
+	// an account whose inference endpoint is not the conventional one.
+	AzureEndpoint string `json:"azure_endpoint,omitempty"`
 
 	StagingContainer     string            `json:"staging_container,omitempty"`
 	PackInlineLimitBytes int               `json:"pack_inline_limit_bytes,omitempty"`
@@ -211,6 +220,15 @@ func (c *Config) validateIdleTimeout() []string {
 			c.IdleTimeoutMinutes, minIdleTimeoutMinutes, maxIdleTimeoutMinutes)}
 	}
 	return nil
+}
+
+// azureEndpoint returns the endpoint the deployed agent binds providers
+// against, deriving it from the account when it is not set explicitly.
+func (c *Config) azureEndpoint() string {
+	if c.AzureEndpoint != "" {
+		return c.AzureEndpoint
+	}
+	return httpsScheme + c.Account + azureOpenAIHostSuffix
 }
 
 // validateStagingContainer checks the Blob container URL is absolute. A bare

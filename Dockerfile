@@ -21,7 +21,20 @@ ENV GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 RUN go build -ldflags="-s -w -X main.Version=${VERSION}" \
     -o /out/foundry-runtime ./cmd/foundry-runtime/
 
-FROM --platform=linux/amd64 gcr.io/distroless/static-debian12:nonroot
+# debian-slim, NOT distroless. Measured against a live sandbox: the identical
+# binary on gcr.io/distroless/static-debian12 never becomes ready, while on
+# debian-slim it answers in about two seconds. The platform needs a fuller base
+# — most likely a shell, since it appears to wrap the entrypoint — and it
+# reports the difference only as an opaque "session did not become ready", with
+# container startup logs exposed through no API. Do not "optimize" this back to
+# distroless without redeploying and invoking a real agent to check.
+FROM --platform=linux/amd64 debian:12-slim
+
+# ca-certificates for TLS to Azure OpenAI. Distroless bundled these; a slim
+# base does not, and without them every model call fails at handshake.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get clean
 
 COPY --from=build /out/foundry-runtime /foundry-runtime
 
@@ -29,5 +42,12 @@ COPY --from=build /out/foundry-runtime /foundry-runtime
 # back to when it is absent.
 EXPOSE 8088
 
-USER nonroot:nonroot
+# Run unprivileged. The platform starts containers as uid 0 by default, but
+# nothing requires it: the pack is written to whichever candidate directory
+# accepts it, and /tmp is world-writable here. An earlier attempt at a
+# non-root image failed for an unrelated reason — it was distroless, which
+# never becomes ready whatever the user.
+RUN useradd --system --uid 65532 --create-home --home-dir /home/nonroot nonroot
+USER 65532:65532
+
 ENTRYPOINT ["/foundry-runtime"]

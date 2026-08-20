@@ -14,6 +14,16 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 )
 
+// newTLSServer starts a TLS test server. TLS, not plain HTTP: azcore's
+// bearer-token policy refuses to attach a credential to a non-https endpoint,
+// so a plain httptest server would fail every request before the handler ran.
+func newTLSServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // fakeCredential hands out a static token so the pipeline's bearer policy runs
 // without contacting Entra.
 type fakeCredential struct{}
@@ -27,11 +37,7 @@ func (fakeCredential) GetToken(
 // testClient wires a restClient to an httptest server.
 func testClient(t *testing.T, handler http.HandlerFunc) *restClient {
 	t.Helper()
-	// TLS, not plain HTTP: azcore's bearer-token policy refuses to attach a
-	// credential to a non-https endpoint, so a plain httptest server would fail
-	// every request before the handler ran.
-	srv := httptest.NewTLSServer(handler)
-	t.Cleanup(srv.Close)
+	srv := newTLSServer(t, handler)
 
 	c, err := newRESTClient(srv.URL, fakeCredential{}, srv.Client())
 	if err != nil {
@@ -240,7 +246,41 @@ func TestRESTCreateVersionSurfacesFailureReason(t *testing.T) {
 	}
 }
 
-func TestRESTSetServedVersionSendsMergePatch(t *testing.T) {
+// The endpoint's protocol list is separate from the version's, and defaults to
+// ["responses"]. Verified against a live project: an agent whose version
+// declares only invocations still gets an endpoint exposing responses, which
+// the container does not serve — so the endpoint is unreachable unless the
+// adapter sets this too.
+func TestRESTSetEndpointSendsProtocols(t *testing.T) {
+	var body map[string]any
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		decodeBody(t, r, &body)
+		writeJSON(t, w, http.StatusOK, map[string]any{"name": "a"})
+	})
+
+	err := c.SetEndpoint(context.Background(), "a", "7",
+		[]string{ProtocolInvocations, ProtocolResponses})
+	if err != nil {
+		t.Fatalf("SetEndpoint: %v", err)
+	}
+
+	endpoint, ok := body["agent_endpoint"].(map[string]any)
+	if !ok {
+		t.Fatalf("body has no agent_endpoint: %v", body)
+	}
+	protocols, ok := endpoint["protocols"].([]any)
+	if !ok {
+		t.Fatalf("agent_endpoint has no protocols: %v", endpoint)
+	}
+	if len(protocols) != 2 || protocols[0] != ProtocolInvocations {
+		t.Errorf("protocols = %v, want the configured list", protocols)
+	}
+}
+
+// Served version and protocols are one concern, so they travel in one patch —
+// two calls would leave a window where the endpoint serves the new version
+// over the wrong protocol.
+func TestRESTSetEndpointSendsMergePatch(t *testing.T) {
 	var body map[string]any
 	var gotMethod, gotContentType string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -249,8 +289,8 @@ func TestRESTSetServedVersionSendsMergePatch(t *testing.T) {
 		writeJSON(t, w, http.StatusOK, map[string]any{"name": "a"})
 	})
 
-	if err := c.SetServedVersion(context.Background(), "a", "7"); err != nil {
-		t.Fatalf("SetServedVersion: %v", err)
+	if err := c.SetEndpoint(context.Background(), "a", "7", []string{ProtocolInvocations}); err != nil {
+		t.Fatalf("SetEndpoint: %v", err)
 	}
 
 	if gotMethod != http.MethodPatch {

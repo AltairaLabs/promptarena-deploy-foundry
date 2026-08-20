@@ -1,24 +1,88 @@
 // Package main implements foundry-runtime, the container entrypoint that
-// serves the Azure AI Foundry hosted-agent protocol contracts for a PromptKit
-// pack.
+// serves a PromptKit pack over the Azure AI Foundry hosted-agent protocol
+// contracts.
 package main
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"net/http"
+	"log/slog"
 	"os"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 // Version is the runtime build version, set at link time by the Dockerfile.
 var Version = "dev"
 
 func main() {
-	srv := newServer()
-	fmt.Fprintf(os.Stderr, "foundry-runtime %s listening on %s\n", Version, srv.Addr)
-
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintf(os.Stderr, "foundry-runtime: %v\n", err)
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	if err := run(context.Background(), log); err != nil {
+		log.Error("fatal", "error", err)
 		os.Exit(1)
 	}
+}
+
+func run(ctx context.Context, log *slog.Logger) error {
+	cfg, err := loadConfig(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
+	packFile, err := resolvePackFile(cfg, packDirCandidates(os.Getenv))
+	if err != nil {
+		return fmt.Errorf("resolve pack: %w", err)
+	}
+
+	pack, err := prompt.LoadPack(packFile)
+	if err != nil {
+		return fmt.Errorf("load pack: %w", err)
+	}
+
+	agentName, err := resolveAgentName(cfg, pack)
+	if err != nil {
+		return err
+	}
+
+	opts, err := buildSDKOptions(cfg)
+	if err != nil {
+		return fmt.Errorf("provider bindings: %w", err)
+	}
+
+	shutdownTracing, traceOpts := setupTracing(cfg, log)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if shutdownErr := shutdownTracing(shutdownCtx); shutdownErr != nil {
+			log.Error("tracing shutdown", "error", shutdownErr)
+		}
+	}()
+	opts = append(opts, traceOpts...)
+
+	specs, err := parseToolSpecs(cfg.ToolSpecsJSON)
+	if err != nil {
+		return fmt.Errorf("tool specs: %w", err)
+	}
+
+	log.Info("runtime configured",
+		"agent", agentName,
+		"pack", packFile,
+		"foundry_agent", cfg.FoundryAgent,
+		"foundry_version", cfg.FoundryVersion,
+		"azure_endpoint", cfg.AzureEndpoint,
+		"provider_options", len(opts),
+		"tool_specs", len(specs))
+
+	voice, err := buildVoiceHandler(cfg, packFile, agentName, opts, log)
+	if err != nil {
+		return fmt.Errorf("voice: %w", err)
+	}
+	if voice != nil {
+		log.Info("voice enabled", "route", routeInvocationsWS)
+	}
+
+	open := newSDKOpener(packFile, agentName, opts, specs)
+	mux := buildMux(newTurnFunc(open), newStreamFunc(open), voice)
+
+	return runServer(ctx, log, listenAddr(cfg), mux)
 }

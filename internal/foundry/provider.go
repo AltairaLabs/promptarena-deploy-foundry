@@ -20,6 +20,38 @@ type Provider struct {
 	// clientFunc builds the control-plane client. Tests substitute it; when nil
 	// the real newClient is used.
 	clientFunc func(ctx context.Context, cfg *Config) (foundryClient, error)
+	// granterFunc builds the ARM client that grants a voice agent model access.
+	// Tests substitute it; when nil the real one is used.
+	granterFunc func(ctx context.Context) (modelAccessGranter, error)
+}
+
+// modelGranter returns the model-access granter, honoring a test override.
+// A granter that cannot be built is not fatal: Apply reports the failure and
+// hands the operator the command instead.
+func (p *Provider) modelGranter(ctx context.Context) modelAccessGranter {
+	if p.granterFunc != nil {
+		granter, err := p.granterFunc(ctx)
+		if err != nil {
+			return nil
+		}
+		return granter
+	}
+	granter, err := newARMGrantClient(ctx)
+	if err != nil {
+		return nil
+	}
+	return granter
+}
+
+// hasSpeechBindings reports whether the pack declares speech in or out. Only
+// those packs reach the account endpoint, and only they need the grant.
+func hasSpeechBindings(bindings []ResolvedBinding) bool {
+	for i := range bindings {
+		if bindings[i].Role == RoleSTT || bindings[i].Role == RoleTTS {
+			return true
+		}
+	}
+	return false
 }
 
 // NewProvider creates a Provider.
