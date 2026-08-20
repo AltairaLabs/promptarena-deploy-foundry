@@ -76,9 +76,14 @@ These are not preferences — the platform enforces them:
 - **Agent versions are immutable.** Apply creates a version and then PATCHes
   the served-version selector; traffic splitting is not supported (one
   `FixedRatio` rule at 100%).
-- **`/readiness` is our job.** Microsoft's Python and C# protocol libraries
-  provide it; a Go container must serve it or the version never leaves
-  `creating`.
+- **`/readiness` is our job**, but it does not gate deployment. Microsoft's
+  Python and C# protocol libraries provide it; a Go container must serve it
+  itself. Measured against a live project: an image that pulls but listens on
+  nothing still reaches `active` and takes 100% of traffic.
+- **`active` means the image pulled, and nothing more.** The platform validates
+  the image at version-create — a bad tag fails with "Container image not
+  found" — but does not start or probe the container until a session exists.
+  A deployment reporting healthy is therefore not evidence that it serves.
 
 ## Go Code Standards
 

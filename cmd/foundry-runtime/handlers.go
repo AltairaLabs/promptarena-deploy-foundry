@@ -10,8 +10,13 @@ import (
 // Routes this container serves.
 //
 // /readiness is required of every hosted agent. Microsoft's Python and C#
-// protocol libraries provide it; a Go container must implement it itself, and
-// a version whose container never answers it stays stuck in `creating`.
+// protocol libraries provide it; a Go container must implement it itself.
+//
+// It does NOT gate the version reaching `active`, contrary to the design note
+// this was built from. Measured against a live project: an image that pulls
+// but listens on nothing still goes active and takes 100% of traffic. The
+// platform validates the image at version-create and defers everything else to
+// first use, so readiness is a per-session concern.
 const (
 	routeReadiness   = "/readiness"
 	routeInvocations = "/invocations"
