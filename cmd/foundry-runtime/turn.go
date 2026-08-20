@@ -57,7 +57,10 @@ func newTurnFunc(
 
 		resp, err := conv.Send(ctx, req.text())
 		if err != nil {
-			return "", fmt.Errorf("send: %w", err)
+			// Name the binding that failed. A bare "404 Resource not found"
+			// from Azure OpenAI is indistinguishable between a wrong endpoint,
+			// a wrong deployment name, and an identity without access.
+			return "", fmt.Errorf("send (%s): %w", describeBinding(), err)
 		}
 		return resp.Text(), nil
 	}
@@ -111,4 +114,21 @@ func streamTurn(
 		}
 	}
 	return nil
+}
+
+// bindingDescription is set at startup so a turn failure can report which
+// provider configuration produced it.
+var bindingDescription = "unconfigured"
+
+// describeBinding returns the resolved provider configuration for error text.
+func describeBinding() string { return bindingDescription }
+
+// setBindingDescription records the resolved configuration for diagnostics.
+func setBindingDescription(endpoint, providerType, model, clientID string) {
+	id := clientID
+	if id == "" {
+		id = "(no client id injected)"
+	}
+	bindingDescription = fmt.Sprintf(
+		"endpoint=%s type=%s deployment=%s identity=%s", endpoint, providerType, model, id)
 }

@@ -86,6 +86,8 @@ func buildSDKOptions(cfg *runtimeConfig) ([]sdk.Option, error) {
 		platformOpts = append(platformOpts, sdk.WithAzureManagedIdentity(cfg.ClientID))
 	}
 
+	setBindingDescription(cfg.AzureEndpoint, primary.Type, primary.Model, cfg.ClientID)
+
 	return []sdk.Option{
 		sdk.WithAzure(cfg.AzureEndpoint, primary.Type, primary.Model, platformOpts...),
 	}, nil
