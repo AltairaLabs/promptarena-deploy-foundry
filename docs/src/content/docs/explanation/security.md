@@ -100,8 +100,14 @@ assert who its users are.
 ## Supply chain
 
 `gosec` runs on every pull request via golangci-lint, Dependabot tracks Go and
-GitHub Actions dependencies, and the Actions in release and write-access
-workflows are pinned by commit SHA.
+GitHub Actions dependencies, and **every** Action in **every** workflow is
+pinned by commit SHA — including the runtime-image publish, which is the one
+workflow holding `packages: write`.
+
+Pinning by tag is not equivalent. A tag is mutable, so `@v6` silently follows
+whatever that tag points at; a compromised or retagged release reaches a
+workflow that can push to the registry operators mirror from. Dependabot still
+raises the version bumps, but against the pinned SHA rather than around it.
 
 ## Reporting a vulnerability
 
