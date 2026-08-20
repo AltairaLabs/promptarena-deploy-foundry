@@ -23,6 +23,8 @@ type recordingClient struct {
 
 	// versionStatus overrides what CreateVersion reports.
 	versionStatus string
+	// gotProtocols records what the endpoint was configured with.
+	gotProtocols []string
 }
 
 func newRecordingClient() *recordingClient {
@@ -57,12 +59,15 @@ func (c *recordingClient) CreateVersion(
 	return v, err
 }
 
-func (c *recordingClient) SetServedVersion(ctx context.Context, name, version string) error {
-	c.calls = append(c.calls, "SetServedVersion")
+func (c *recordingClient) SetEndpoint(
+	ctx context.Context, name, version string, protocols []string,
+) error {
+	c.calls = append(c.calls, "SetEndpoint")
+	c.gotProtocols = protocols
 	if c.servedVersionErr != nil {
 		return c.servedVersionErr
 	}
-	return c.dryRunClient.SetServedVersion(ctx, name, version)
+	return c.dryRunClient.SetEndpoint(ctx, name, version, protocols)
 }
 
 func (c *recordingClient) DeleteAgent(ctx context.Context, name string) error {
@@ -99,7 +104,7 @@ func TestApplyFirstDeploySequence(t *testing.T) {
 
 	// The agent must exist before a version can be created against it, and the
 	// selector can only point at a version that already exists.
-	want := []string{"CreateAgent", "CreateVersion", "SetServedVersion"}
+	want := []string{"CreateAgent", "CreateVersion", "SetEndpoint"}
 	if len(client.calls) != len(want) {
 		t.Fatalf("calls = %v, want %v", client.calls, want)
 	}
@@ -107,6 +112,12 @@ func TestApplyFirstDeploySequence(t *testing.T) {
 		if client.calls[i] != want[i] {
 			t.Fatalf("calls = %v, want %v", client.calls, want)
 		}
+	}
+
+	// The endpoint must expose what the container serves; it defaults to
+	// responses otherwise.
+	if len(client.gotProtocols) != 1 || client.gotProtocols[0] != ProtocolInvocations {
+		t.Errorf("endpoint protocols = %v, want the configured list", client.gotProtocols)
 	}
 
 	out, err := parseState(state)
@@ -257,8 +268,8 @@ func TestApplyDoesNotServeAnInFlightVersion(t *testing.T) {
 	}
 
 	for _, c := range client.calls {
-		if c == "SetServedVersion" {
-			t.Errorf("calls = %v, want no SetServedVersion for a version still creating", client.calls)
+		if c == "SetEndpoint" {
+			t.Errorf("calls = %v, want no SetEndpoint for a version still creating", client.calls)
 		}
 	}
 }

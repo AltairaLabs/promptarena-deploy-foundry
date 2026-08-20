@@ -104,6 +104,7 @@ type (
 
 	agentEndpointWire struct {
 		VersionSelector *versionSelectorWire `json:"version_selector,omitempty"`
+		Protocols       []string             `json:"protocols,omitempty"`
 	}
 
 	versionSelectorWire struct {
@@ -342,8 +343,17 @@ func (c *restClient) GetVersion(ctx context.Context, name, version string) (*Age
 	return toVersion(&wire), nil
 }
 
-// SetServedVersion points the endpoint selector at one version at full traffic.
-func (c *restClient) SetServedVersion(ctx context.Context, name, version string) error {
+// SetEndpoint points the selector at one version at full traffic and declares
+// the protocols the endpoint exposes.
+//
+// The protocol list is not inherited from the version's protocol_versions and
+// defaults to ["responses"]. Verified against a live project: an agent whose
+// version declares only invocations still gets a responses endpoint, so
+// omitting this leaves the deployment unreachable over the protocol it
+// actually serves.
+func (c *restClient) SetEndpoint(
+	ctx context.Context, name, version string, protocols []string,
+) error {
 	body := agentWire{
 		AgentEndpoint: &agentEndpointWire{
 			VersionSelector: &versionSelectorWire{
@@ -353,6 +363,7 @@ func (c *restClient) SetServedVersion(ctx context.Context, name, version string)
 					TrafficPercentage: fullTrafficPercentage,
 				}},
 			},
+			Protocols: protocols,
 		},
 	}
 

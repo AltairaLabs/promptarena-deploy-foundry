@@ -92,15 +92,15 @@ func TestDryRunGetAgentFindsWhatItCreated(t *testing.T) {
 	}
 }
 
-func TestDryRunSetServedVersion(t *testing.T) {
+func TestDryRunSetEndpoint(t *testing.T) {
 	c := newDryRunClient()
 	ctx := context.Background()
 
 	if _, err := c.CreateAgent(ctx, dryRunSpec()); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := c.SetServedVersion(ctx, "support-pack", "1"); err != nil {
-		t.Fatalf("SetServedVersion: %v", err)
+	if err := c.SetEndpoint(ctx, "support-pack", "1", []string{ProtocolInvocations}); err != nil {
+		t.Fatalf("SetEndpoint: %v", err)
 	}
 
 	agent, err := c.GetAgent(ctx, "support-pack")

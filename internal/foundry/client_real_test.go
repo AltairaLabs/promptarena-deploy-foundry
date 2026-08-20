@@ -240,7 +240,41 @@ func TestRESTCreateVersionSurfacesFailureReason(t *testing.T) {
 	}
 }
 
-func TestRESTSetServedVersionSendsMergePatch(t *testing.T) {
+// The endpoint's protocol list is separate from the version's, and defaults to
+// ["responses"]. Verified against a live project: an agent whose version
+// declares only invocations still gets an endpoint exposing responses, which
+// the container does not serve — so the endpoint is unreachable unless the
+// adapter sets this too.
+func TestRESTSetEndpointSendsProtocols(t *testing.T) {
+	var body map[string]any
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		decodeBody(t, r, &body)
+		writeJSON(t, w, http.StatusOK, map[string]any{"name": "a"})
+	})
+
+	err := c.SetEndpoint(context.Background(), "a", "7",
+		[]string{ProtocolInvocations, ProtocolResponses})
+	if err != nil {
+		t.Fatalf("SetEndpoint: %v", err)
+	}
+
+	endpoint, ok := body["agent_endpoint"].(map[string]any)
+	if !ok {
+		t.Fatalf("body has no agent_endpoint: %v", body)
+	}
+	protocols, ok := endpoint["protocols"].([]any)
+	if !ok {
+		t.Fatalf("agent_endpoint has no protocols: %v", endpoint)
+	}
+	if len(protocols) != 2 || protocols[0] != ProtocolInvocations {
+		t.Errorf("protocols = %v, want the configured list", protocols)
+	}
+}
+
+// Served version and protocols are one concern, so they travel in one patch —
+// two calls would leave a window where the endpoint serves the new version
+// over the wrong protocol.
+func TestRESTSetEndpointSendsMergePatch(t *testing.T) {
 	var body map[string]any
 	var gotMethod, gotContentType string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -249,8 +283,8 @@ func TestRESTSetServedVersionSendsMergePatch(t *testing.T) {
 		writeJSON(t, w, http.StatusOK, map[string]any{"name": "a"})
 	})
 
-	if err := c.SetServedVersion(context.Background(), "a", "7"); err != nil {
-		t.Fatalf("SetServedVersion: %v", err)
+	if err := c.SetEndpoint(context.Background(), "a", "7", []string{ProtocolInvocations}); err != nil {
+		t.Fatalf("SetEndpoint: %v", err)
 	}
 
 	if gotMethod != http.MethodPatch {

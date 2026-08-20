@@ -120,8 +120,9 @@ func applyAgent(
 		deploy.ActionCreate, "created", "Version is active")
 	reportProgress(report, "Version is active", progressVersionReady)
 
-	if serveErr := client.SetServedVersion(ctx, in.AgentName, version.Version); serveErr != nil {
-		return &state, fmt.Errorf("point agent %q at version %q: %w",
+	serveErr := client.SetEndpoint(ctx, in.AgentName, version.Version, in.Cfg.Protocols)
+	if serveErr != nil {
+		return &state, fmt.Errorf("configure endpoint of agent %q for version %q: %w",
 			in.AgentName, version.Version, serveErr)
 	}
 
