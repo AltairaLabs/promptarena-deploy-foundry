@@ -42,6 +42,12 @@ COPY --from=build /out/foundry-runtime /foundry-runtime
 # back to when it is absent.
 EXPOSE 8088
 
-# No USER directive: the platform starts containers as uid 0, confirmed by
-# probing a live sandbox.
+# Run unprivileged. The platform starts containers as uid 0 by default, but
+# nothing requires it: the pack is written to whichever candidate directory
+# accepts it, and /tmp is world-writable here. An earlier attempt at a
+# non-root image failed for an unrelated reason — it was distroless, which
+# never becomes ready whatever the user.
+RUN useradd --system --uid 65532 --create-home --home-dir /home/nonroot nonroot
+USER 65532:65532
+
 ENTRYPOINT ["/foundry-runtime"]

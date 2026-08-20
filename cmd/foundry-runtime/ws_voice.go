@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -61,12 +62,33 @@ const (
 	eventDone       = "done"
 )
 
+// duplexConversation is the slice of sdk.Conversation the relay actually uses.
+// Naming it lets a test drive the handler without a model, an STT service or a
+// network.
+type duplexConversation interface {
+	SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
+	SendText(ctx context.Context, text string) error
+	Response() (<-chan providers.StreamChunk, error)
+	Close() error
+}
+
 // voiceDeps is everything the WebSocket handler needs to open a turn.
 type voiceDeps struct {
+	// Open starts a duplex conversation. Tests substitute it; when nil the
+	// real sdk.OpenDuplex is used.
+	Open      func() (duplexConversation, error)
 	PackFile  string
 	AgentName string
 	Opts      []sdk.Option
 	Log       *slog.Logger
+}
+
+// openConversation starts a duplex conversation, honoring a test override.
+func (d voiceDeps) openConversation() (duplexConversation, error) {
+	if d.Open != nil {
+		return d.Open()
+	}
+	return sdk.OpenDuplex(d.PackFile, d.AgentName, d.Opts...)
 }
 
 // newVoiceHandler serves WS /invocations_ws, cascading audio through the pack's
@@ -92,9 +114,15 @@ func newVoiceHandler(deps voiceDeps, upgrader *websocket.Upgrader) http.Handler 
 }
 
 // voiceSession is one WebSocket conversation.
+//
+// Writes are serialized: the response pump runs on its own goroutine while the
+// inbound loop can also write — an error event, a close frame — and a
+// websocket connection supports only one concurrent writer. Without the mutex
+// the race detector catches it, and in production it would corrupt frames.
 type voiceSession struct {
-	conn *websocket.Conn
-	deps voiceDeps
+	conn    *websocket.Conn
+	deps    voiceDeps
+	writeMu sync.Mutex
 }
 
 // run drives the conversation until the socket closes or the turn fails.
@@ -102,7 +130,7 @@ func (s *voiceSession) run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conv, err := sdk.OpenDuplex(s.deps.PackFile, s.deps.AgentName, s.deps.Opts...)
+	conv, err := s.deps.openConversation()
 	if err != nil {
 		s.fail("open conversation", err)
 		return
@@ -122,7 +150,7 @@ func (s *voiceSession) run(ctx context.Context) {
 
 // pumpInbound relays client frames into the conversation. Binary frames are
 // audio; text frames are control.
-func (s *voiceSession) pumpInbound(ctx context.Context, conv *sdk.Conversation) {
+func (s *voiceSession) pumpInbound(ctx context.Context, conv duplexConversation) {
 	for {
 		msgType, data, err := s.conn.ReadMessage()
 		if err != nil {
@@ -154,7 +182,7 @@ func (s *voiceSession) pumpInbound(ctx context.Context, conv *sdk.Conversation) 
 // handleControl acts on a text control frame. An unparseable or unknown frame
 // is ignored rather than closing the call: a client sending something this
 // runtime does not understand should not lose its audio.
-func (s *voiceSession) handleControl(ctx context.Context, conv *sdk.Conversation, data []byte) {
+func (s *voiceSession) handleControl(ctx context.Context, conv duplexConversation, data []byte) {
 	var frame controlFrame
 	if err := json.Unmarshal(data, &frame); err != nil {
 		s.deps.Log.Warn("ignoring unparseable control frame", "error", err)
@@ -193,14 +221,21 @@ func (s *voiceSession) send(event outboundEvent) {
 	if err != nil {
 		return
 	}
-	_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
-	_ = s.conn.WriteMessage(websocket.TextMessage, encoded)
+	s.write(websocket.TextMessage, encoded)
 }
 
 // sendBinary writes one audio frame.
 func (s *voiceSession) sendBinary(data []byte) {
+	s.write(websocket.BinaryMessage, data)
+}
+
+// write serializes access to the connection's single writer.
+func (s *voiceSession) write(messageType int, data []byte) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
-	_ = s.conn.WriteMessage(websocket.BinaryMessage, data)
+	_ = s.conn.WriteMessage(messageType, data)
 }
 
 // fail reports an error to the client and closes with the platform's own code
@@ -209,6 +244,10 @@ func (s *voiceSession) fail(what string, err error) {
 	s.deps.Log.Error("voice session failed", "op", what, "error", err)
 	s.send(outboundEvent{Type: eventError, Error: what + ": " + err.Error()})
 
+	// WriteControl is safe alongside WriteMessage, but take the lock anyway so
+	// the close frame cannot interleave with a half-written event.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	_ = s.conn.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(wsCloseInternalError, what),

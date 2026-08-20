@@ -109,7 +109,7 @@ func TestBuildVoiceHandlerNilWithoutSpeechBindings(t *testing.T) {
 		ProvidersJSON: `[{"name":"default","role":"llm","type":"openai","model":"m"}]`,
 	}
 
-	got, err := buildVoiceHandler(cfg, "pack.json", "main", nil, testLogger())
+	got, err := buildVoiceHandler(cfg, "pack.json", "main", nil, discardLogger())
 	if err != nil {
 		t.Fatalf("buildVoiceHandler: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestBuildVoiceHandlerRequiresTheAccountEndpoint(t *testing.T) {
 		ProvidersJSON: `[{"role":"stt","model":"t"},{"role":"tts","model":"s"}]`,
 	}
 
-	if _, err := buildVoiceHandler(cfg, "pack.json", "main", nil, testLogger()); err == nil {
+	if _, err := buildVoiceHandler(cfg, "pack.json", "main", nil, discardLogger()); err == nil {
 		t.Fatal("buildVoiceHandler accepted voice bindings with no account endpoint")
 	}
 }

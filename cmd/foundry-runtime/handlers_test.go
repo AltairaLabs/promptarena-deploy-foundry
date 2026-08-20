@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -293,9 +291,4 @@ func TestMuxServesVoiceRouteWhenPresent(t *testing.T) {
 	if rec.Code != http.StatusTeapot {
 		t.Errorf("GET %s = %d, want the voice handler to serve it", routeInvocationsWS, rec.Code)
 	}
-}
-
-// testLogger returns a logger that discards output.
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
