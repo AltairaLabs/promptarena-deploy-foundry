@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -86,9 +87,37 @@ func buildSDKOptions(cfg *runtimeConfig) ([]sdk.Option, error) {
 		platformOpts = append(platformOpts, sdk.WithAzureManagedIdentity(cfg.ClientID))
 	}
 
-	setBindingDescription(cfg.AzureEndpoint, primary.Type, primary.Model, cfg.ClientID)
+	// Pass the full deployment URL, not the bare account endpoint.
+	//
+	// PromptKit's SDK copies the platform endpoint straight into
+	// ProviderSpec.BaseURL, and its openai factory only derives the Azure
+	// deployment path when BaseURL is empty — so a bare endpoint makes that
+	// branch unreachable and produces {endpoint}/chat/completions with no
+	// deployment segment and no api-version, which Azure answers 404. Supplying
+	// the deployment URL here yields the correct final request, and the
+	// api-version is still appended because the platform is azure.
+	//
+	// Remove this once the upstream bug is fixed; the helper is idempotent, so
+	// it stays correct if the SDK starts building the path itself.
+	endpoint := azureDeploymentEndpoint(cfg.AzureEndpoint, primary.Model)
+	setBindingDescription(endpoint, primary.Type, primary.Model, cfg.ClientID)
 
 	return []sdk.Option{
-		sdk.WithAzure(cfg.AzureEndpoint, primary.Type, primary.Model, platformOpts...),
+		sdk.WithAzure(endpoint, primary.Type, primary.Model, platformOpts...),
 	}, nil
+}
+
+// azureDeploymentPath is the segment Azure OpenAI addresses a deployment
+// through.
+const azureDeploymentPath = "/openai/deployments/"
+
+// azureDeploymentEndpoint builds the deployment URL for a model. It is
+// idempotent: an endpoint that already names the deployment is returned
+// unchanged.
+func azureDeploymentEndpoint(endpoint, deployment string) string {
+	trimmed := strings.TrimRight(endpoint, "/")
+	if strings.Contains(trimmed, azureDeploymentPath) {
+		return trimmed
+	}
+	return trimmed + azureDeploymentPath + deployment
 }
