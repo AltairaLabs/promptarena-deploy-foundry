@@ -55,9 +55,25 @@ Paste any error messages, logs, or stack traces here.
 
 Add any other context about the problem here (screenshots, related issues, etc.).
 
+## Documentation Impact
+
+**Would closing this make something in the docs untrue?**
+Check the docs for statements this issue would invalidate — a documented limitation,
+a "not supported yet", or a described behaviour that changes. Docs deliberately carry
+no issue links, so nothing points back here when this closes; the doc update has to be
+part of the work.
+
+- [ ] No documented statement changes
+- [ ] Yes — the pages to update are listed below, and updating them is part of this issue
+
+```
+<paths under docs/ that this makes stale>
+```
+
 ## Checklist
 
 - [ ] I have searched existing issues to ensure this is not a duplicate.
 - [ ] I have included all relevant environment details.
 - [ ] I have provided a minimal configuration to reproduce the issue.
 - [ ] I have redacted any secrets or sensitive information from the config and logs.
+- [ ] I have checked whether fixing this makes any existing documentation untrue, and listed the pages if so
