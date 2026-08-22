@@ -42,7 +42,7 @@ func TestArenaProviderLookupFallsBackToSpecs(t *testing.T) {
 		ProviderSpecs: map[string]*ArenaProvider{"gpt4o": {Type: "azure", Model: "d"}},
 	}
 
-	if got := cfg.provider("gpt4o"); got == nil {
+	if cfg.provider("gpt4o") == nil {
 		t.Error("provider() = nil, want the spec provider")
 	}
 }

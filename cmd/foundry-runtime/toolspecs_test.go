@@ -86,7 +86,7 @@ func TestHTTPToolConfig(t *testing.T) {
 		HTTP: &toolHTTP{Method: "POST", URL: "https://example.test/x"},
 	}
 
-	if got := httpToolConfig(spec); got == nil {
+	if httpToolConfig(spec) == nil {
 		t.Fatal("httpToolConfig = nil, want a config")
 	}
 }
@@ -96,7 +96,7 @@ func TestHTTPToolConfig(t *testing.T) {
 func TestHTTPToolConfigWithoutAMethod(t *testing.T) {
 	spec := toolSpec{Name: "fetch", HTTP: &toolHTTP{URL: "https://example.test/x"}}
 
-	if got := httpToolConfig(spec); got == nil {
+	if httpToolConfig(spec) == nil {
 		t.Fatal("httpToolConfig = nil, want a config")
 	}
 }

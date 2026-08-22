@@ -32,6 +32,8 @@ const (
 	fullTrafficPercentage = 100
 	// moduleName identifies this adapter in the telemetry User-Agent.
 	moduleName = "promptarena-deploy-foundry"
+	// agentsPath is the data-plane prefix every agent route hangs off.
+	agentsPath = "/agents/"
 )
 
 // Polling defaults for a version's provisioning wait.
@@ -255,7 +257,7 @@ func (c *restClient) CreateAgent(ctx context.Context, spec *AgentSpec) (*Agent, 
 func (c *restClient) CreateVersion(
 	ctx context.Context, name string, spec *AgentSpec,
 ) (*AgentVersion, error) {
-	resp, err := c.do(ctx, http.MethodPost, "/agents/"+name+"/versions", buildCreateBody(spec))
+	resp, err := c.do(ctx, http.MethodPost, agentsPath+name+"/versions", buildCreateBody(spec))
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +311,7 @@ func (c *restClient) awaitVersion(
 
 // GetAgent fetches one agent.
 func (c *restClient) GetAgent(ctx context.Context, name string) (*Agent, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/agents/"+name, nil)
+	resp, err := c.do(ctx, http.MethodGet, agentsPath+name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +332,7 @@ func (c *restClient) GetAgent(ctx context.Context, name string) (*Agent, error) 
 
 // GetVersion fetches one version.
 func (c *restClient) GetVersion(ctx context.Context, name, version string) (*AgentVersion, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/agents/"+name+"/versions/"+version, nil)
+	resp, err := c.do(ctx, http.MethodGet, agentsPath+name+"/versions/"+version, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +376,7 @@ func (c *restClient) SetEndpoint(
 		},
 	}
 
-	req, err := runtime.NewRequest(ctx, http.MethodPatch, c.url("/agents/"+name))
+	req, err := runtime.NewRequest(ctx, http.MethodPatch, c.url(agentsPath+name))
 	if err != nil {
 		return fmt.Errorf("build served-version patch: %w", err)
 	}
@@ -424,7 +426,7 @@ func (c *restClient) ListAgents(ctx context.Context) ([]Agent, error) {
 // DeleteAgent removes an agent. An agent that is already gone is not an error,
 // so destroy converges on an already-clean project.
 func (c *restClient) DeleteAgent(ctx context.Context, name string) error {
-	resp, err := c.do(ctx, http.MethodDelete, "/agents/"+name, nil)
+	resp, err := c.do(ctx, http.MethodDelete, agentsPath+name, nil)
 	if err != nil {
 		return err
 	}
@@ -471,7 +473,7 @@ func notFoundError(resp *http.Response, resourceErr error) error {
 		Error errorWire `json:"error"`
 	}
 	// An empty or unparseable body still means the resource is not there.
-	if unmarshalErr := json.Unmarshal(body, &envelope); unmarshalErr != nil {
+	if json.Unmarshal(body, &envelope) != nil {
 		return resourceErr
 	}
 

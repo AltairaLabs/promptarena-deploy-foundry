@@ -71,7 +71,7 @@ func TestHashPlanConfigTracksDeployAffectingFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseHashConfig()
 			tt.mutate(cfg)
-			if got := hashOf(t, cfg, resolved, ""); got == base {
+			if hashOf(t, cfg, resolved, "") == base {
 				t.Errorf("changing %s did not move the config hash", tt.name)
 			}
 		})
@@ -118,7 +118,7 @@ func TestHashPlanConfigIgnoresNonDeployedFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseHashConfig()
 			tt.mutate(cfg)
-			if got := hashOf(t, cfg, resolved, ""); got != base {
+			if hashOf(t, cfg, resolved, "") != base {
 				t.Errorf("changing %s moved the config hash, want it ignored", tt.name)
 			}
 		})

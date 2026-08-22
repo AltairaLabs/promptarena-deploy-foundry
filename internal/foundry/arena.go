@@ -131,7 +131,7 @@ func parseToolManifest(data []byte) (name string, spec json.RawMessage) {
 	}
 
 	var manifest arenaToolManifest
-	if unmarshalErr := json.Unmarshal(asJSON, &manifest); unmarshalErr != nil {
+	if json.Unmarshal(asJSON, &manifest) != nil {
 		return "", nil
 	}
 
@@ -146,7 +146,7 @@ func parseToolManifest(data []byte) (name string, spec json.RawMessage) {
 	var envelope struct {
 		Spec json.RawMessage `json:"spec"`
 	}
-	if unmarshalErr := json.Unmarshal(asJSON, &envelope); unmarshalErr != nil {
+	if json.Unmarshal(asJSON, &envelope) != nil {
 		return "", nil
 	}
 	return name, envelope.Spec

@@ -88,8 +88,10 @@ jobs:
     steps:
     - name: Check for SONAR_TOKEN
       id: guard
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       run: |
-        if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+        if [ -z "$SONAR_TOKEN" ]; then
           echo "SONAR_TOKEN is not set; skipping the SonarCloud scan." >&2
           echo "enabled=false" >> "$GITHUB_OUTPUT"
         else

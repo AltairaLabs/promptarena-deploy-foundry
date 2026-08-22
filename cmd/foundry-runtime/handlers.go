@@ -25,6 +25,9 @@ const (
 	routeInvocationsWS = "/invocations_ws"
 )
 
+// headerContentType names the header that carries the media types below.
+const headerContentType = "Content-Type"
+
 // contentTypeSSE is the media type for the streaming response.
 const contentTypeSSE = "text/event-stream"
 
@@ -146,7 +149,7 @@ func newInvocationsHandler(turn turnFunc, stream streamFunc) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", contentTypeJSON)
+		w.Header().Set(headerContentType, contentTypeJSON)
 		_ = json.NewEncoder(w).Encode(invocationResponse{
 			Output:         out,
 			ConversationID: req.ConversationID,
@@ -231,7 +234,7 @@ func (s *sseWriter) flush() {
 
 // writeSSEHeader sends the streaming response headers.
 func writeSSEHeader(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", contentTypeSSE)
+	w.Header().Set(headerContentType, contentTypeSSE)
 	// The platform relays these frames; buffering anywhere in between would
 	// defeat the point of streaming at all.
 	w.Header().Set("Cache-Control", "no-cache")
@@ -271,7 +274,7 @@ func withPlatformHeaders(next http.Handler) http.Handler {
 // newReadinessHandler serves GET /readiness.
 func newReadinessHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", contentTypeJSON)
+		w.Header().Set(headerContentType, contentTypeJSON)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(readinessBody))
 	})

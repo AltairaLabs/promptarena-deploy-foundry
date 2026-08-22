@@ -26,7 +26,7 @@ usage() {
     exit "${1:-0}"
 }
 
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --stream)  STREAM=true; shift ;;
         --session) SESSION="$2"; shift 2 ;;
@@ -39,12 +39,12 @@ while [ $# -gt 0 ]; do
 done
 
 MESSAGE="${1:-}"
-if [ -z "$MESSAGE" ]; then
+if [[ -z "$MESSAGE" ]]; then
     echo "error: no message given" >&2
     usage 1
 fi
 for var in ACCOUNT PROJECT AGENT; do
-    if [ -z "${!var}" ]; then
+    if [[ -z "${!var}" ]]; then
         echo "error: FOUNDRY_${var} is not set" >&2
         usage 1
     fi
@@ -57,7 +57,7 @@ URL="https://${ACCOUNT}.services.ai.azure.com/api/projects/${PROJECT}"
 URL="${URL}/agents/${AGENT}/endpoint/protocols/invocations?api-version=v1"
 # The invocations endpoint reads the session id from the query string only;
 # a body field or header is forwarded to the container but does not bind it.
-if [ -n "$SESSION" ]; then
+if [[ -n "$SESSION" ]]; then
     URL="${URL}&agent_session_id=${SESSION}"
 fi
 
