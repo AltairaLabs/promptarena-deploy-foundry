@@ -35,6 +35,27 @@ archives:
     formats: [binary]
     name_template: "promptarena-deploy-foundry_{{ .Os }}_{{ .Arch }}"
 
+# An SBOM per released binary, attached to the GitHub release.
+#
+# A risk analyst asking a third-party questionnaire wants a document they can
+# read, not an attestation they have to pull off an OCI manifest with buildx.
+# The image carries its own SBOM as an OCI referrer; this is the same evidence
+# in the form the question is actually asked in.
+#
+# SPDX JSON because it is what most questionnaires name. Generated from the
+# artifacts GoReleaser just built, so the SBOM and the binary cannot drift.
+# Named from .ArtifactName, which already carries GOOS/GOARCH.
+#
+# The obvious "${artifact}.spdx.sbom.json" does not work here: every platform
+# builds a binary of the same name, so all four SBOMs collide on one filename
+# and GoReleaser keeps one of them — describing a platform nobody can
+# identify. It warns rather than fails, so this ships quietly broken.
+sboms:
+  - id: binaries
+    artifacts: binary
+    documents:
+      - "{{ .ArtifactName }}.spdx.sbom.json"
+
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256

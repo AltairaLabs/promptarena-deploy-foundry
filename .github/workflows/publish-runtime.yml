@@ -53,3 +53,16 @@ jobs:
           tags: |
             ghcr.io/altairalabs/promptkit-foundry-runtime:${{ steps.meta.outputs.tag }}
             ghcr.io/altairalabs/promptkit-foundry-runtime:latest
+          # SBOM and SLSA provenance attached to the pushed image as OCI
+          # referrers via buildx, with no Sigstore involvement. Inspect with:
+          #   docker buildx imagetools inspect <ref> --format '{{json .SBOM}}'
+          #
+          # Omnia took the same route deliberately: the GitHub attestation
+          # store (attest-build-provenance + attest-sbom) pushes to Sigstore's
+          # public Rekor log, whose timeouts failed its push job routinely, and
+          # the attestations never surfaced in the UI in a way anyone used.
+          # On-image provenance still satisfies SLSA L2 for consumers who
+          # inspect with buildx.
+          provenance: true
+          sbom: true
+
