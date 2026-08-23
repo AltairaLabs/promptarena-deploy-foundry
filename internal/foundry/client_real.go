@@ -203,16 +203,20 @@ func buildCreateBody(spec *AgentSpec) createAgentWire {
 }
 
 // url builds an absolute data-plane URL carrying the api-version parameter.
-func (c *restClient) url(path string) string {
-	return fmt.Sprintf("%s%s?api-version=%s", c.baseURL, path, apiVersion)
+func (c *restClient) url(path string, extraParams ...string) string {
+	u := fmt.Sprintf("%s%s?api-version=%s", c.baseURL, path, apiVersion)
+	for _, p := range extraParams {
+		u += "&" + p
+	}
+	return u
 }
 
 // do issues a request and returns the response, leaving status handling to the
 // caller so each operation can map its own not-found semantics.
 func (c *restClient) do(
-	ctx context.Context, method, path string, body any,
+	ctx context.Context, method, path string, body any, extraParams ...string,
 ) (*http.Response, error) {
-	req, err := runtime.NewRequest(ctx, method, c.url(path))
+	req, err := runtime.NewRequest(ctx, method, c.url(path, extraParams...))
 	if err != nil {
 		return nil, fmt.Errorf("build %s %s: %w", method, path, err)
 	}
@@ -425,8 +429,16 @@ func (c *restClient) ListAgents(ctx context.Context) ([]Agent, error) {
 
 // DeleteAgent removes an agent. An agent that is already gone is not an error,
 // so destroy converges on an already-clean project.
+// DeleteAgent removes an agent, cascading through any sessions it still holds.
+//
+// force=true is not optional. Foundry refuses to delete an agent with active
+// sessions — 409 "Agent has active sessions" — and a session lingers for the
+// idle timeout, 5 to 60 minutes. Without it, destroying an agent anyone has
+// actually talked to fails, leaving the caller holding a resource they
+// explicitly asked to remove. Destroy is an unambiguous instruction to tear
+// the agent down; waiting out an idle timer is not a reading of it.
 func (c *restClient) DeleteAgent(ctx context.Context, name string) error {
-	resp, err := c.do(ctx, http.MethodDelete, agentsPath+name, nil)
+	resp, err := c.do(ctx, http.MethodDelete, agentsPath+name, nil, "force=true")
 	if err != nil {
 		return err
 	}

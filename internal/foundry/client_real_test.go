@@ -521,3 +521,33 @@ func TestRESTGetVersionDistinguishesAMissingProject(t *testing.T) {
 		t.Errorf("err = %v, want ErrProjectNotFound", err)
 	}
 }
+
+// Foundry refuses to delete an agent that still has sessions — 409 "Agent has
+// active sessions" — and a session lingers for the idle timeout, 5 to 60
+// minutes. Destroying an agent anyone has actually talked to therefore failed
+// until DeleteAgent started cascading. Found by the first integration run that
+// got far enough to invoke an agent before tearing it down.
+func TestRESTDeleteAgentCascadesSessions(t *testing.T) {
+	var gotPath, gotQuery string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := c.DeleteAgent(context.Background(), "support-pack"); err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+
+	if gotPath != "/agents/support-pack" {
+		t.Errorf("path = %q, want /agents/support-pack", gotPath)
+	}
+	if !strings.Contains(gotQuery, "force=true") {
+		t.Errorf("query = %q, want force=true so sessions are cascaded", gotQuery)
+	}
+	// The api-version must survive alongside it: appending with the wrong
+	// separator yields "?force=true?api-version=..." and the request is
+	// malformed in a way the server reports as something else entirely.
+	if !strings.Contains(gotQuery, "api-version="+apiVersion) {
+		t.Errorf("query = %q, want api-version preserved alongside force", gotQuery)
+	}
+}
