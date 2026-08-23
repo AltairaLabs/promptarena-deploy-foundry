@@ -1,8 +1,12 @@
-name: Update PromptKit Dependency
+name: Update upstream dependencies
 
+# Two upstreams now, not one. The deploy contract (runtime/deploy and
+# adaptersdk) moved out of PromptKit into promptarena, so a release there
+# reaches this adapter only if we listen for it — which nothing did, leaving the
+# module that defines the adapter's own interface with no update path at all.
 on:
   repository_dispatch:
-    types: [promptkit-release]
+    types: [promptkit-release, promptarena-release]
 
 permissions:
   contents: write
@@ -29,15 +33,24 @@ jobs:
     - name: Update go.mod
       env:
         VERSION: ${{ github.event.client_payload.version }}
+        # Read from the environment rather than interpolated into the script:
+        # a dispatch payload is attacker-controlled input to a shell otherwise.
+        EVENT: ${{ github.event.action }}
       run: |
-        echo "Updating PromptKit modules to $VERSION..."
+        if [ "$EVENT" = "promptarena-release" ]; then
+          echo "Updating promptarena to $VERSION..."
+          go mod edit -require="github.com/AltairaLabs/promptarena@$VERSION"
+          go mod edit -dropreplace="github.com/AltairaLabs/promptarena"
+        else
+          echo "Updating PromptKit modules to $VERSION..."
 
-        # Bump every PromptKit module this repo may reference. `go mod tidy`
-        # below drops any that turn out to be unused.
-        for m in runtime pkg sdk; do
-          go mod edit -require="github.com/AltairaLabs/PromptKit/$m@$VERSION"
-          go mod edit -dropreplace="github.com/AltairaLabs/PromptKit/$m"
-        done
+          # Bump every PromptKit module this repo may reference. `go mod tidy`
+          # below drops any that turn out to be unused.
+          for m in runtime pkg sdk; do
+            go mod edit -require="github.com/AltairaLabs/PromptKit/$m@$VERSION"
+            go mod edit -dropreplace="github.com/AltairaLabs/PromptKit/$m"
+          done
+        fi
 
         go mod tidy
 
@@ -64,15 +77,21 @@ jobs:
     - name: Create pull request
       env:
         VERSION: ${{ github.event.client_payload.version }}
+        EVENT: ${{ github.event.action }}
         GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       run: |
-        BRANCH="deps/promptkit-$VERSION"
+        if [ "$EVENT" = "promptarena-release" ]; then
+          UPSTREAM="promptarena"
+        else
+          UPSTREAM="PromptKit"
+        fi
+        BRANCH="deps/$UPSTREAM-$VERSION"
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
 
         git checkout -b "$BRANCH"
         git add -A
-        git commit -s -m "deps: update PromptKit to $VERSION
+        git commit -s -m "deps: update $UPSTREAM to $VERSION
 
         Drop replace directives — published modules are now available on
         the Go proxy."
@@ -82,14 +101,14 @@ jobs:
         # Unquoted delimiter, so $VERSION interpolates. With <<'PREOF' the body
         # would render the literal string "$VERSION".
         gh pr create \
-          --title "deps: update PromptKit to $VERSION" \
+          --title "deps: update $UPSTREAM to $VERSION" \
           --body "$(cat <<PREOF
         ## Summary
 
-        - Update the \`github.com/AltairaLabs/PromptKit/*\` modules to $VERSION
+        - Update \`$UPSTREAM\` to $VERSION
         - Drop \`replace\` directives from \`go.mod\` (published modules available)
 
-        Triggered automatically by PromptKit release $VERSION.
+        Triggered automatically by the $UPSTREAM release of $VERSION.
 
         ## Verification
 
