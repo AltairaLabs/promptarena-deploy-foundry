@@ -145,7 +145,8 @@ func applyAgent(
 
 	reportResource(report, ResTypeServedVersion, servedVersionName,
 		deploy.ActionUpdate, "updated",
-		fmt.Sprintf("Serving version %s at 100%% traffic", version.Version))
+		fmt.Sprintf("Serving version %s at 100%% traffic", version.Version),
+		endpointLinks(in.Cfg, in.AgentName)...)
 	reportProgress(report, "Deployment complete", progressServed)
 
 	return &state, nil
@@ -236,6 +237,7 @@ func reportProgress(report *adaptersdk.ProgressReporter, message string, pct flo
 func reportResource(
 	report *adaptersdk.ProgressReporter,
 	resType, name string, action deploy.Action, status, detail string,
+	links ...deploy.ResourceLink,
 ) {
 	if report == nil {
 		return
@@ -246,6 +248,7 @@ func reportResource(
 		Action: action,
 		Status: status,
 		Detail: detail,
+		Links:  links,
 	})
 }
 
@@ -356,7 +359,7 @@ func (p *Provider) Status(
 	return &deploy.StatusResponse{
 		Status:    deploymentStatus(agent, prior),
 		State:     req.PriorState,
-		Resources: agentResources(agent, prior),
+		Resources: agentResources(cfg, agent, prior),
 	}, nil
 }
 
@@ -372,12 +375,13 @@ func deploymentStatus(agent *Agent, prior *State) string {
 }
 
 // agentResources describes the live agent and its served version.
-func agentResources(agent *Agent, prior *State) []deploy.ResourceStatus {
+func agentResources(cfg *Config, agent *Agent, prior *State) []deploy.ResourceStatus {
 	resources := []deploy.ResourceStatus{{
 		Type:   ResTypeAgent,
 		Name:   agent.Name,
 		Status: ResourceHealthy,
 		Detail: "Foundry hosted agent exists",
+		Links:  endpointLinks(cfg, prior.AgentName),
 	}}
 
 	served := deploy.ResourceStatus{
