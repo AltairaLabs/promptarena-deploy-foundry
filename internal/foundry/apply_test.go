@@ -459,7 +459,7 @@ func TestDeploymentStatus(t *testing.T) {
 }
 
 func TestAgentResourcesReportsTheServedVersion(t *testing.T) {
-	got := agentResources(&Agent{Name: "a", ServedVersion: "3"}, &State{})
+	got := agentResources(testLinkConfig(), &Agent{Name: "a", ServedVersion: "3"}, &State{})
 
 	if len(got) != 2 {
 		t.Fatalf("resources = %d, want the agent and its served version", len(got))
@@ -473,7 +473,7 @@ func TestAgentResourcesReportsTheServedVersion(t *testing.T) {
 }
 
 func TestAgentResourcesFlagsAnUnservedAgent(t *testing.T) {
-	got := agentResources(&Agent{Name: "a"}, &State{})
+	got := agentResources(testLinkConfig(), &Agent{Name: "a"}, &State{})
 
 	if got[1].Status != ResourceUnhealthy {
 		t.Errorf("served version status = %q, want %q", got[1].Status, ResourceUnhealthy)
@@ -484,7 +484,7 @@ func TestAgentResourcesFlagsAnUnservedAgent(t *testing.T) {
 // deploy intended, which the operator needs to see.
 func TestAgentResourcesFlagsAnInFlightVersion(t *testing.T) {
 	prior := &State{InFlight: &InFlightVersion{Version: "4"}}
-	got := agentResources(&Agent{Name: "a", ServedVersion: "3"}, prior)
+	got := agentResources(testLinkConfig(), &Agent{Name: "a", ServedVersion: "3"}, prior)
 
 	if got[1].Status != ResourceUnhealthy {
 		t.Errorf("served version status = %q, want %q", got[1].Status, ResourceUnhealthy)
@@ -706,4 +706,11 @@ func TestHasSpeechBindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testLinkConfig is the minimum config the endpoint link needs. Status builds
+// the invocations URL from account and project, so a nil config would silently
+// produce no link and make the link assertions vacuous.
+func testLinkConfig() *Config {
+	return &Config{Account: "acct", Project: "proj"}
 }
