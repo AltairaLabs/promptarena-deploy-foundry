@@ -151,7 +151,10 @@ func deployConfig(t *testing.T, env testEnv) string {
 		"memory":    "2Gi",
 		"protocols": []string{foundry.ProtocolInvocations},
 		"providers": []map[string]any{
-			{"name": "default", "role": "llm", "type": "azure", "model": env.Model},
+			// type is the provider FAMILY, not the platform: "azure" fails at
+			// container startup with "unsupported provider type: azure".
+			// model is the Azure deployment name, not the model name.
+			{"name": "default", "role": "llm", "type": "openai", "model": env.Model},
 		},
 	}
 	encoded, err := json.Marshal(cfg)
