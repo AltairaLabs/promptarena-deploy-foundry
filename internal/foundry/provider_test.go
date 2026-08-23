@@ -164,6 +164,7 @@ func TestPlanRejectsAnInvalidConfig(t *testing.T) {
 func TestPlanRejectsAnUnresolvableBinding(t *testing.T) {
 	const cfg = `{
       "account":"a","project":"p","image":"acr.azurecr.io/x:1",
+      "cpu":"1","memory":"2Gi",
       "providers":[{"name":"default","arena_provider":"nope"}]
     }`
 
@@ -177,6 +178,7 @@ func TestPlanRejectsAnUnresolvableBinding(t *testing.T) {
 func TestPlanRequiresAnLLMBinding(t *testing.T) {
 	const cfg = `{
       "account":"a","project":"p","image":"acr.azurecr.io/x:1",
+      "cpu":"1","memory":"2Gi",
       "providers":[{"name":"speech","role":"tts","type":"cartesia","model":"m"}]
     }`
 

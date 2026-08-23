@@ -23,13 +23,6 @@ func diagnoseConfig(cfg *Config) []string {
 
 	warnings = append(warnings, diagnoseImage(cfg)...)
 
-	if cfg.CPU == "" && cfg.Memory == "" {
-		warnings = append(warnings, fmt.Sprintf(
-			"cpu and memory are not set, so the platform's default sizing applies; "+
-				"the fixed pairs are %s and they cannot be changed after a version is created",
-			describeResourcePairs()))
-	}
-
 	warnings = append(warnings, diagnoseProtocols(cfg)...)
 	warnings = append(warnings, diagnoseObservability(cfg)...)
 

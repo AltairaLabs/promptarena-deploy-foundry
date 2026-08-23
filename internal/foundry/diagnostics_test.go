@@ -25,11 +25,13 @@ func TestDiagnoseConfigQuietForACRImages(t *testing.T) {
 	}
 }
 
-func TestDiagnoseConfigWarnsWhenResourcesAreUnset(t *testing.T) {
+// Unset sizing is an error now, not a warning: the old advisory told the user
+// "the platform's default sizing applies", and Foundry has no default.
+func TestDiagnoseConfigDoesNotClaimADefaultSizing(t *testing.T) {
 	cfg := &Config{Account: "a", Project: "p", Image: "acr.azurecr.io/x:1"}
 
-	if got := diagnoseConfig(cfg); !containsSubstring(got, "cpu and memory are not set") {
-		t.Errorf("diagnoseConfig() = %v, want a sizing warning", got)
+	if got := diagnoseConfig(cfg); containsSubstring(got, "default sizing") {
+		t.Errorf("diagnoseConfig() = %v, want no claim of a platform default", got)
 	}
 }
 
