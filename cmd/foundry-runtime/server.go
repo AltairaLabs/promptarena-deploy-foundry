@@ -80,7 +80,9 @@ func runServer(ctx context.Context, log *slog.Logger, addr string, mux *http.Ser
 		return fmt.Errorf("serve: %w", serveErr)
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// ctx is already canceled by the time we get here, so strip the
+	// cancellation and keep its values for the drain window.
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
