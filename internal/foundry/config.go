@@ -147,13 +147,16 @@ func (c *Config) validateStructure() []string {
 // validateResources enforces the three legal cpu/memory pairs. They are fixed
 // and immutable per version, so a mismatched pair is a hard error rather than
 // something to normalize silently.
+//
+// Both are required. Foundry has no default sizing: a create without them is
+// rejected with HTTP 400 "Required property 'cpu' is missing". Treating them
+// as optional turned that into a failure minutes into an apply, which is
+// exactly what this validation exists to prevent.
 func (c *Config) validateResources() []string {
-	if c.CPU == "" && c.Memory == "" {
-		return nil
-	}
 	if c.CPU == "" || c.Memory == "" {
 		return []string{fmt.Sprintf(
-			"cpu and memory must be set together; Foundry offers only the fixed pairs %s",
+			"cpu and memory are required and must be set together; Foundry has no "+
+				"default sizing and rejects a deploy without them. The fixed pairs are %s",
 			describeResourcePairs())}
 	}
 

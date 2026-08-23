@@ -13,8 +13,8 @@ config before the adapter is ever invoked.
 | `account` | string | Yes | Foundry account name. The data plane host is `{account}.services.ai.azure.com`. |
 | `project` | string | Yes | Foundry project the agent is created in. |
 | `image` | string | Yes | Azure Container Registry reference to the runtime image. Must be `linux/amd64`. |
-| `cpu` | enum | No | `"0.5"` \| `"1"` \| `"2"`. Pairs with `memory`; immutable per version. |
-| `memory` | enum | No | `"1Gi"` \| `"2Gi"` \| `"4Gi"`. Must match the `cpu` value's legal pair. |
+| `cpu` | enum | Yes | `"0.5"` \| `"1"` \| `"2"`. Pairs with `memory`; immutable per version. |
+| `memory` | enum | Yes | `"1Gi"` \| `"2Gi"` \| `"4Gi"`. Must match the `cpu` value's legal pair. |
 | `protocols` | list | No | `invocations`, `invocations_ws`, `responses`. Defaults to `[invocations]`. |
 | `idle_timeout_minutes` | integer | No | 5–60. Platform default is 15 when unset. |
 | `providers` | list | Yes | Provider bindings. At least one with role `llm`. |
@@ -60,16 +60,17 @@ A binding must name **exactly one** source. Setting both `arena_provider` and
 Structural problems are errors; advisories are warnings and do not make a
 config invalid. All problems are reported together rather than one per run.
 
-Errors include a missing `account`, `project` or `image`; a cpu/memory pair
-that is not one of the three legal combinations; an unknown protocol; an
+Errors include a missing `account`, `project` or `image`; missing or
+half-specified `cpu`/`memory`; a cpu/memory pair that is not one of the three
+legal combinations; an unknown protocol; an
 `idle_timeout_minutes` outside 5–60; a `staging_container` that is not an
 absolute `https://` URL; an `otlp_endpoint` without a scheme; a duplicated or
 sourceless binding; and a tag name containing `<>%&\?/` or over the length
 limits.
 
-Warnings include an image outside an Azure Container Registry, unset cpu and
-memory, a protocol the bundled runtime does not serve, an `otlp_endpoint` that
-merely overrides what the platform injects, and no binding named `default`.
+Warnings include an image outside an Azure Container Registry, a protocol the
+bundled runtime does not serve, an `otlp_endpoint` that merely overrides what
+the platform injects, and no binding named `default`.
 
 ## Environment injected into the container
 

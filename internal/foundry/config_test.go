@@ -78,12 +78,12 @@ func TestValidateStructure(t *testing.T) {
 		{
 			name:       "cpu without memory is rejected",
 			cfg:        Config{Account: "a", Project: "p", Image: "i", CPU: "1"},
-			wantErrSub: "cpu and memory must be set together",
+			wantErrSub: "cpu and memory are required",
 		},
 		{
 			name:       "memory without cpu is rejected",
 			cfg:        Config{Account: "a", Project: "p", Image: "i", Memory: "2Gi"},
-			wantErrSub: "cpu and memory must be set together",
+			wantErrSub: "cpu and memory are required",
 		},
 		{
 			name:       "unknown protocol is rejected",
@@ -127,7 +127,7 @@ func TestValidateStructure(t *testing.T) {
 // Unlike vertex, tracing_enabled alone is valid here: Foundry injects
 // OTEL_EXPORTER_OTLP_ENDPOINT, so an explicit endpoint only overrides it.
 func TestTracingEnabledWithoutEndpointIsValid(t *testing.T) {
-	cfg := Config{Account: "a", Project: "p", Image: "i",
+	cfg := Config{Account: "a", Project: "p", Image: "i", CPU: "1", Memory: "2Gi",
 		Observability: &Observability{TracingEnabled: true}}
 
 	if errs := cfg.validateStructure(); len(errs) != 0 {
@@ -145,12 +145,27 @@ func TestValidateStructureAcceptsEveryLegalResourcePair(t *testing.T) {
 }
 
 func TestValidateStructureAcceptsAMinimalConfig(t *testing.T) {
-	cfg, err := parseConfig(`{"account":"a","project":"p","image":"acr.azurecr.io/x:1"}`)
+	cfg, err := parseConfig(
+		`{"account":"a","project":"p","image":"acr.azurecr.io/x:1","cpu":"1","memory":"2Gi"}`)
 	if err != nil {
 		t.Fatalf("parseConfig: %v", err)
 	}
 	if errs := cfg.validateStructure(); len(errs) != 0 {
 		t.Errorf("validateStructure() = %v, want no errors", errs)
+	}
+}
+
+// Foundry has no default sizing: a create without cpu and memory comes back
+// 400 "Required property 'cpu' is missing". The adapter used to accept such a
+// config and merely warn, which turned a config error into an apply failure.
+func TestValidateStructureRequiresSizing(t *testing.T) {
+	cfg, err := parseConfig(`{"account":"a","project":"p","image":"acr.azurecr.io/x:1"}`)
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	errs := cfg.validateStructure()
+	if !containsSubstring(errs, "cpu and memory are required") {
+		t.Errorf("validateStructure() = %v, want a required-sizing error", errs)
 	}
 }
 
