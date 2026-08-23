@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/promptarena/deploy"
 )
 
 const validConfigJSON = `{
@@ -209,11 +209,21 @@ func TestPlanReportsDriftWhenTheAgentIsGone(t *testing.T) {
 	if stub.gotName != "solo-pack" {
 		t.Errorf("verified agent %q, want solo-pack", stub.gotName)
 	}
-	if !containsSubstring(got.Warnings, "no longer exists") {
-		t.Errorf("Warnings = %v, want a drift warning", got.Warnings)
+	// Two changes for the one agent: the DRIFT saying what happened, then the
+	// CREATE that replaces it.
+	var actions []deploy.Action
+	for _, c := range got.Changes {
+		if c.Type == ResTypeAgent {
+			actions = append(actions, c.Action)
+		}
 	}
-	if c := findChange(got.Changes, ResTypeAgent); c == nil || c.Action != deploy.ActionCreate {
-		t.Errorf("agent change = %+v, want a create after drift", c)
+	if len(actions) != 2 || actions[0] != deploy.ActionDrift || actions[1] != deploy.ActionCreate {
+		t.Errorf("expected DRIFT then CREATE for an agent deleted out of band, got %v from %+v",
+			actions, got.Changes)
+	}
+	if got.Changes[0].Detail == "" || !containsSubstring(
+		[]string{got.Changes[0].Detail}, "no longer exists") {
+		t.Errorf("drift change should say the agent is gone, got %+v", got.Changes[0])
 	}
 }
 

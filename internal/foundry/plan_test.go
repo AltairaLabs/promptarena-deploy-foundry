@@ -3,7 +3,7 @@ package foundry
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/promptarena/deploy"
 )
 
 func basePlanInput() *planInput {
@@ -196,15 +196,38 @@ func TestPlanReportsMultiMemberPacks(t *testing.T) {
 	}
 }
 
-// Drift explains why an agent the user believes exists is being created.
+// Drift explains why an agent the user believes exists is being created. It
+// leads the change list rather than the warnings, so it is counted and
+// rendered like every other change.
 func TestPlanSurfacesDriftFirst(t *testing.T) {
 	in := basePlanInput()
-	in.Drift = []string{"agent support-pack is in state but no longer exists"}
+	in.Drift = []deploy.ResourceChange{{
+		Type:   ResTypeAgent,
+		Name:   "support-pack",
+		Action: deploy.ActionDrift,
+		Detail: "support-pack no longer exists at the provider",
+	}}
 
 	got := buildPlan(in)
 
-	if len(got.Warnings) == 0 || got.Warnings[0] != in.Drift[0] {
-		t.Errorf("Warnings = %v, want drift reported first", got.Warnings)
+	if len(got.Changes) == 0 || got.Changes[0].Action != deploy.ActionDrift {
+		t.Fatalf("Changes = %+v, want drift reported first", got.Changes)
+	}
+	if !containsSubstring([]string{got.Summary}, "1 drifted") {
+		t.Errorf("Summary = %q, want a drift count", got.Summary)
+	}
+}
+
+// Advisories describe the verification rather than its result, so they stay
+// warnings: neither is an absence, so neither is a change.
+func TestPlanSurfacesAdvisoriesAsWarnings(t *testing.T) {
+	in := basePlanInput()
+	in.Advisories = []string{"prior state could not be verified"}
+
+	got := buildPlan(in)
+
+	if len(got.Warnings) == 0 || got.Warnings[0] != in.Advisories[0] {
+		t.Errorf("Warnings = %v, want the advisory reported first", got.Warnings)
 	}
 }
 

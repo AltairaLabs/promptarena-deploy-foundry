@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/promptarena/deploy"
+	"github.com/AltairaLabs/promptarena/deploy/adaptersdk"
 )
 
 // ProviderName is the provider id used in arena config and the binary name.
@@ -197,7 +198,7 @@ func (p *Provider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.P
 		return nil, err
 	}
 
-	prior, drift, err := p.verifiedPriorState(ctx, in.Cfg, in.Prior)
+	prior, drift, advisories, err := p.verifiedPriorState(ctx, in.Cfg, in.Prior)
 	if err != nil {
 		return nil, err
 	}
@@ -213,53 +214,96 @@ func (p *Provider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.P
 		Delivery:    in.Delivery,
 		HasA2ATools: hasA2ATools(req.PackJSON),
 		Drift:       drift,
+		Advisories:  advisories,
 	}), nil
 }
 
+// agentProbe answers the shared drift contract's existence question for the
+// single agent this adapter records.
+//
+// It keeps the agent it fetched and the error it hit, because the caller needs
+// both for concerns the contract does not model: a missing project is a
+// configuration error rather than drift, and a served version that disagrees
+// with state is drift of a kind absence-checking cannot express.
+type agentProbe struct {
+	client foundryClient
+	found  *Agent
+	err    error
+}
+
+// Exists reports whether the agent named by ref is still present.
+func (p *agentProbe) Exists(
+	ctx context.Context, ref adaptersdk.ResourceRef,
+) (adaptersdk.Existence, error) {
+	agent, err := p.client.GetAgent(ctx, ref.Name)
+	if err != nil {
+		p.err = err
+		if isAgentNotFound(err) {
+			return adaptersdk.ExistsNo, nil
+		}
+		return adaptersdk.ExistsUnknown, err
+	}
+	p.found = agent
+	return adaptersdk.ExistsYes, nil
+}
+
 // verifiedPriorState checks recorded state against the live control plane and
-// returns the corrected state plus warnings describing any drift.
+// returns the corrected state, any drift, and advisories about the check
+// itself.
 //
 // Verification is best-effort. A control plane that cannot be reached degrades
 // to an unverified plan rather than failing the operation — a plan the user
 // cannot run is worse than one carrying a caveat.
 func (p *Provider) verifiedPriorState(
 	ctx context.Context, cfg *Config, prior *State,
-) (verified *State, drift []string, err error) {
+) (verified *State, drift []deploy.ResourceChange, advisories []string, err error) {
 	// Nothing recorded means a first deploy: there is nothing to verify, and a
 	// dry run must stay fully offline.
 	if cfg.DryRun || prior.AgentName == "" {
-		return prior, nil, nil
+		return prior, nil, nil, nil
 	}
 
-	client, err := p.newControlPlaneClient(ctx, cfg)
-	if err != nil {
-		return prior, []string{unverifiedWarning(err)}, nil
+	client, clientErr := p.newControlPlaneClient(ctx, cfg)
+	if clientErr != nil {
+		return prior, nil, []string{unverifiedWarning(clientErr)}, nil
 	}
 
-	agent, err := client.GetAgent(ctx, prior.AgentName)
-	if err != nil {
-		// A missing project is a configuration error, not drift: every
-		// operation against it will fail, so surface it rather than planning
-		// resources that can never be created.
-		if errors.Is(err, ErrProjectNotFound) {
-			// Wrap the sentinel rather than err: the API's own phrasing says
-			// less than this message does, and echoing both reads as a stutter.
-			return nil, nil, fmt.Errorf(
-				"project %q does not exist in account %q; check the deploy config: %w",
-				cfg.Project, cfg.Account, ErrProjectNotFound)
-		}
-		verified, drift = driftedState(prior, err)
-		return verified, drift, nil
+	probe := &agentProbe{client: client}
+	survivors, drift := adaptersdk.ReconcilePriorState(ctx, probe, []adaptersdk.ResourceRef{
+		{Type: ResTypeAgent, Name: prior.AgentName},
+	})
+
+	// A missing project is a configuration error, not drift: every operation
+	// against it will fail, so surface it rather than planning resources that
+	// can never be created.
+	if errors.Is(probe.err, ErrProjectNotFound) {
+		// Wrap the sentinel rather than probe.err: the API's own phrasing says
+		// less than this message does, and echoing both reads as a stutter.
+		return nil, nil, nil, fmt.Errorf(
+			"project %q does not exist in account %q; check the deploy config: %w",
+			cfg.Project, cfg.Account, ErrProjectNotFound)
 	}
 
-	if agent.ServedVersion != prior.ServedVersion {
-		return prior, []string{fmt.Sprintf(
+	// The agent is gone. Clear what depended on it so the plan shows a create
+	// rather than a no-change against a resource that does not exist.
+	if len(survivors) == 0 {
+		return clearedState(prior), drift, nil, nil
+	}
+
+	// Kept, but the lookup may have failed rather than succeeded — the shared
+	// reconciler treats both alike, and the operator should know which it was.
+	if probe.found == nil {
+		return prior, nil, []string{unverifiedWarning(probe.err)}, nil
+	}
+
+	if probe.found.ServedVersion != prior.ServedVersion {
+		return prior, nil, []string{fmt.Sprintf(
 			"agent %q reports served version %q but state records %q; "+
 				"the endpoint may have been repointed outside this adapter",
-			prior.AgentName, agent.ServedVersion, prior.ServedVersion)}, nil
+			prior.AgentName, probe.found.ServedVersion, prior.ServedVersion)}, nil
 	}
 
-	return prior, nil, nil
+	return prior, nil, nil, nil
 }
 
 // unverifiedWarning explains that a plan is based on unverified state.
@@ -269,23 +313,15 @@ func unverifiedWarning(err error) string {
 			"the plan assumes the recorded state is accurate", err)
 }
 
-// driftedState turns a failed lookup into corrected state plus an explanation.
-func driftedState(prior *State, lookupErr error) (verified *State, drift []string) {
-	if !isAgentNotFound(lookupErr) {
-		return prior, []string{unverifiedWarning(lookupErr)}
-	}
-
-	// The agent is genuinely gone. Clear what depended on it so the plan shows
-	// a create rather than a no-change against a resource that does not exist.
+// clearedState drops everything that depended on an agent that no longer
+// exists, so the plan shows a create rather than a no-change.
+func clearedState(prior *State) *State {
 	corrected := *prior
-	name := prior.AgentName
 	corrected.AgentName = ""
 	corrected.ServedVersion = ""
 	corrected.PriorVersions = nil
 	corrected.InFlight = nil
-
-	return &corrected, []string{fmt.Sprintf(
-		"agent %q is recorded in state but no longer exists; it will be recreated", name)}
+	return &corrected
 }
 
 // Import is deferred; see the phasing in the design of record.
