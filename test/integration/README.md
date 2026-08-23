@@ -12,8 +12,36 @@ export FOUNDRY_TEST_ACCOUNT=my-foundry-account
 export FOUNDRY_TEST_PROJECT=my-project
 export FOUNDRY_TEST_IMAGE=myacr.azurecr.io/altairalabs/promptkit-foundry-runtime:v0.1.0
 
+# Optional: the Azure OpenAI *deployment* name the pack binds to. It must
+# already exist in the project — the adapter does not create one. Defaults to
+# gpt-4-1-mini.
+export FOUNDRY_TEST_MODEL=gpt-4-1-mini
+
 make test-integration
 ```
+
+CI does not run these — they need Entra credentials and create billable
+resources. CI does type-check them (`go vet -tags=integration ./...`), so they
+cannot silently stop compiling between manual runs.
+
+## What they cover
+
+| Test | What a failure means |
+|------|----------------------|
+| `ApplyCreatesAgentAndServesAVersion` | A deploy did not leave an agent, a version and an endpoint pointed at it. |
+| `StatusReportsDeployed` | The adapter's view of a live deploy disagrees with Azure's. |
+| `UnaryInvocation` | The container does not serve the invocations protocol, or the pack's system prompt never reached the model. |
+| `ToolCalling` | The tool path is broken somewhere between model, arena mock and model. The tool returns a value the model cannot otherwise know. |
+| `StreamingInvocation` | The SSE stream never sends its terminating frame, so clients reading to completion hang. |
+| `SessionCarriesConversation` | The session id does not bind a conversation. It is read from the query string only, so a body field fails silently. |
+| `ReapplyIsIdempotent` | An unchanged deploy churns a version. Foundry versions are immutable, so this costs a rollout for nothing. |
+| `ChangedPackRollsTheServedVersion` | A changed pack does not produce a new version, or the endpoint is not repointed. |
+| `DriftIsDetectedWhenTheAgentIsDeleted` | Plan does not notice an agent deleted outside the adapter, and apply would fail updating something that is gone. |
+| `DestroyIsIdempotent` | A retried teardown fails, turning every interrupted destroy into manual cleanup. |
+
+Each test deploys its own agent and deletes it on cleanup, including on
+failure. A cleanup that cannot delete reports loudly rather than quietly
+leaking a billable resource.
 
 ## Prerequisites
 
@@ -21,6 +49,23 @@ make test-integration
   by `azidentity.DefaultAzureCredential` (`az login` is enough locally).
 - The image must already be pushed to an Azure Container Registry the project
   can pull from. Foundry will not pull from ghcr.io.
+- **The project's managed identity needs `AcrPull` on that registry** — the
+  project's, not the account's. They are separate system-assigned identities,
+  and granting only the account's produces a deploy that creates the agent and
+  the version, then fails provisioning with:
+
+  ```
+  Container registry authentication failed. Verify the workspace managed
+  identity has AcrPull permissions on the target registry.
+  ```
+
+  Read the project's principal id with:
+
+  ```bash
+  az resource show \
+    --ids "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>" \
+    --api-version 2025-04-01-preview --query identity.principalId -o tsv
+  ```
 - The image must be `linux/amd64`.
 
 ## Cleaning up
