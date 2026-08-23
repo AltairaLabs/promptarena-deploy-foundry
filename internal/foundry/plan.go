@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/promptarena/deploy"
 )
 
 // Resource type names surfaced in plans.
@@ -44,14 +44,23 @@ type planInput struct {
 	Delivery    PackDelivery
 	HasA2ATools bool
 	// Drift describes resources that were in prior state but no longer exist,
-	// as found by verifying against the live control plane.
-	Drift []string
+	// as found by verifying against the live control plane. They travel as
+	// changes rather than warnings so they are counted and rendered like
+	// everything else in the plan.
+	Drift []deploy.ResourceChange
+	// Advisories describe the verification itself rather than its result:
+	// state that could not be checked, or an endpoint repointed out of band.
+	// Neither is an absence, so neither is a change.
+	Advisories []string
 }
 
 // buildPlan diffs desired against prior state and returns the resource changes.
 // It performs no I/O: everything it needs has already been gathered.
 func buildPlan(in *planInput) *deploy.PlanResponse {
-	changes := []deploy.ResourceChange{agentChange(in)}
+	// Drift first: each entry explains why the resource below it is being
+	// created rather than updated.
+	changes := append([]deploy.ResourceChange{}, in.Drift...)
+	changes = append(changes, agentChange(in))
 
 	if versionChange, ok := versionChange(in); ok {
 		changes = append(changes, versionChange, servedVersionChange(in))
@@ -168,9 +177,9 @@ func servedVersionChange(in *planInput) deploy.ResourceChange {
 // planWarnings returns advisories about a plan that will apply cleanly but may
 // not behave as the author expects.
 func planWarnings(in *planInput) []string {
-	// Drift first: it explains why a resource the user believes is deployed is
-	// being created rather than updated.
-	warnings := slices.Clone(in.Drift)
+	// Advisories first: they explain that the plan below may be built on
+	// state nobody could confirm.
+	warnings := slices.Clone(in.Advisories)
 
 	if in.HasA2ATools {
 		warnings = append(warnings,
@@ -197,12 +206,12 @@ func planWarnings(in *planInput) []string {
 }
 
 // summaryPartCount is the number of action buckets a summary can mention:
-// create, update, delete and unchanged.
-const summaryPartCount = 4
+// create, update, delete, drifted and unchanged.
+const summaryPartCount = 5
 
 // summarizeChanges renders a one-line summary of the plan.
 func summarizeChanges(changes []deploy.ResourceChange) string {
-	var create, update, del, unchanged int
+	var create, update, del, unchanged, drifted int
 	for i := range changes {
 		switch changes[i].Action {
 		case deploy.ActionCreate:
@@ -214,7 +223,7 @@ func summarizeChanges(changes []deploy.ResourceChange) string {
 		case deploy.ActionNoChange:
 			unchanged++
 		case deploy.ActionDrift:
-			update++
+			drifted++
 		}
 	}
 
@@ -227,6 +236,9 @@ func summarizeChanges(changes []deploy.ResourceChange) string {
 	}
 	if del > 0 {
 		parts = append(parts, fmt.Sprintf("%d to delete", del))
+	}
+	if drifted > 0 {
+		parts = append(parts, fmt.Sprintf("%d drifted", drifted))
 	}
 
 	// "1 unchanged" alone is not a change set; report it as no changes so the

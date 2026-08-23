@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/promptarena/deploy"
 )
 
 // recordingClient is a simulated control plane that records the calls made
