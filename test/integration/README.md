@@ -49,6 +49,23 @@ leaking a billable resource.
   by `azidentity.DefaultAzureCredential` (`az login` is enough locally).
 - The image must already be pushed to an Azure Container Registry the project
   can pull from. Foundry will not pull from ghcr.io.
+- **The project's managed identity needs `AcrPull` on that registry** — the
+  project's, not the account's. They are separate system-assigned identities,
+  and granting only the account's produces a deploy that creates the agent and
+  the version, then fails provisioning with:
+
+  ```
+  Container registry authentication failed. Verify the workspace managed
+  identity has AcrPull permissions on the target registry.
+  ```
+
+  Read the project's principal id with:
+
+  ```bash
+  az resource show \
+    --ids "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>" \
+    --api-version 2025-04-01-preview --query identity.principalId -o tsv
+  ```
 - The image must be `linux/amd64`.
 
 ## Cleaning up

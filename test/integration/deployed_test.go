@@ -141,9 +141,14 @@ func deployConfig(t *testing.T, env testEnv) string {
 	t.Helper()
 
 	cfg := map[string]any{
-		"account":   env.Account,
-		"project":   env.Project,
-		"image":     env.Image,
+		"account": env.Account,
+		"project": env.Project,
+		"image":   env.Image,
+		// Foundry rejects a create without these — see the adapter fix that
+		// this suite's first real run prompted. Kept explicit here so the
+		// tests exercise a config Azure will actually accept.
+		"cpu":       "1",
+		"memory":    "2Gi",
 		"protocols": []string{foundry.ProtocolInvocations},
 		"providers": []map[string]any{
 			{"name": "default", "role": "llm", "type": "azure", "model": env.Model},
