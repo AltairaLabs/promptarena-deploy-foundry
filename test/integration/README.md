@@ -12,8 +12,34 @@ export FOUNDRY_TEST_ACCOUNT=my-foundry-account
 export FOUNDRY_TEST_PROJECT=my-project
 export FOUNDRY_TEST_IMAGE=myacr.azurecr.io/altairalabs/promptkit-foundry-runtime:v0.1.0
 
+# Optional: the Azure OpenAI deployment name the pack binds to. Defaults to gpt-4o.
+export FOUNDRY_TEST_MODEL=gpt-4o
+
 make test-integration
 ```
+
+CI does not run these — they need Entra credentials and create billable
+resources. CI does type-check them (`go vet -tags=integration ./...`), so they
+cannot silently stop compiling between manual runs.
+
+## What they cover
+
+| Test | What a failure means |
+|------|----------------------|
+| `ApplyCreatesAgentAndServesAVersion` | A deploy did not leave an agent, a version and an endpoint pointed at it. |
+| `StatusReportsDeployed` | The adapter's view of a live deploy disagrees with Azure's. |
+| `UnaryInvocation` | The container does not serve the invocations protocol, or the pack's system prompt never reached the model. |
+| `ToolCalling` | The tool path is broken somewhere between model, arena mock and model. The tool returns a value the model cannot otherwise know. |
+| `StreamingInvocation` | The SSE stream never sends its terminating frame, so clients reading to completion hang. |
+| `SessionCarriesConversation` | The session id does not bind a conversation. It is read from the query string only, so a body field fails silently. |
+| `ReapplyIsIdempotent` | An unchanged deploy churns a version. Foundry versions are immutable, so this costs a rollout for nothing. |
+| `ChangedPackRollsTheServedVersion` | A changed pack does not produce a new version, or the endpoint is not repointed. |
+| `DriftIsDetectedWhenTheAgentIsDeleted` | Plan does not notice an agent deleted outside the adapter, and apply would fail updating something that is gone. |
+| `DestroyIsIdempotent` | A retried teardown fails, turning every interrupted destroy into manual cleanup. |
+
+Each test deploys its own agent and deletes it on cleanup, including on
+failure. A cleanup that cannot delete reports loudly rather than quietly
+leaking a billable resource.
 
 ## Prerequisites
 
