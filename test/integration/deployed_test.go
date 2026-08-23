@@ -39,9 +39,10 @@ const (
 	envModel   = "FOUNDRY_TEST_MODEL"
 )
 
-// defaultModel is the Azure OpenAI deployment name the pack binds to. Override
-// with FOUNDRY_TEST_MODEL when the test project deploys a different one.
-const defaultModel = "gpt-4o"
+// defaultModel is the Azure OpenAI deployment name the pack binds to. This is
+// a deployment name, not a model name, and it must already exist in the target
+// project — the adapter does not create one. Override with FOUNDRY_TEST_MODEL.
+const defaultModel = "gpt-4-1-mini"
 
 // authScope is the Entra scope for the Foundry data plane, matching the one the
 // adapter's own client uses.

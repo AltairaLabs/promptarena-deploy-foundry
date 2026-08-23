@@ -12,8 +12,10 @@ export FOUNDRY_TEST_ACCOUNT=my-foundry-account
 export FOUNDRY_TEST_PROJECT=my-project
 export FOUNDRY_TEST_IMAGE=myacr.azurecr.io/altairalabs/promptkit-foundry-runtime:v0.1.0
 
-# Optional: the Azure OpenAI deployment name the pack binds to. Defaults to gpt-4o.
-export FOUNDRY_TEST_MODEL=gpt-4o
+# Optional: the Azure OpenAI *deployment* name the pack binds to. It must
+# already exist in the project — the adapter does not create one. Defaults to
+# gpt-4-1-mini.
+export FOUNDRY_TEST_MODEL=gpt-4-1-mini
 
 make test-integration
 ```
