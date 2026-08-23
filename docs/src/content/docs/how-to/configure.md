@@ -61,8 +61,9 @@ The project's managed identity needs `Container Registry Repository Reader` (or
 
 ## Sizing
 
-`cpu` and `memory` are enums, not free strings. Foundry offers exactly three
-pairs and they are immutable once a version exists:
+`cpu` and `memory` are required, and they are enums rather than free strings.
+Foundry has no default sizing — a deploy without them is rejected outright — and
+it offers exactly three pairs, immutable once a version exists:
 
 | cpu | memory |
 |---|---|
