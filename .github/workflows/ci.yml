@@ -33,6 +33,13 @@ jobs:
     - name: Test with race detector and coverage
       run: GOWORK=off go test ./... -v -race -count=1 -coverprofile=coverage.out
 
+    # Integration tests need cloud credentials and cost money, so they are not
+    # run here. Compiling them is free and catches the failure they are most
+    # prone to: a signature or import change that the untagged build never sees,
+    # leaving them broken until someone runs them by hand before a release.
+    - name: Type-check the integration-tagged tests
+      run: GOWORK=off go vet -tags=integration ./...
+
     - name: Upload coverage artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
