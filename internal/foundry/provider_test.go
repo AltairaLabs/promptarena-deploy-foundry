@@ -18,7 +18,7 @@ const validConfigJSON = `{
   "cpu": "1",
   "memory": "2Gi",
   "protocols": ["invocations"],
-  "providers": [{"name": "default", "role": "llm", "type": "azure", "model": "gpt4o-deploy"}]
+  "providers": [{"name": "default", "role": "llm", "type": "openai", "model": "gpt4o-deploy"}]
 }`
 
 func TestGetProviderInfo(t *testing.T) {
@@ -100,7 +100,7 @@ func TestValidateConfigReportsEveryProblemClass(t *testing.T) {
 func TestValidateConfigWarningsDoNotInvalidate(t *testing.T) {
 	const cfg = `{
       "account": "a", "project": "p", "image": "ghcr.io/x:1", "cpu": "1", "memory": "2Gi",
-      "providers": [{"name": "primary", "role": "llm", "type": "azure", "model": "m"}]
+      "providers": [{"name": "primary", "role": "llm", "type": "openai", "model": "m"}]
     }`
 
 	got, err := NewProvider().ValidateConfig(context.Background(), &deploy.ValidateRequest{Config: cfg})
