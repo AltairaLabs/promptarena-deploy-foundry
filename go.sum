@@ -4,10 +4,10 @@ github.com/AltairaLabs/PromptKit/pkg v1.5.11 h1:X+pRYR1DoN5C1CmNz2O+aiR8DVBTlGDX
 github.com/AltairaLabs/PromptKit/pkg v1.5.11/go.mod h1:b0vd1SGERdmnPAMGXAHl/CBvNfI1sf7kuqtJnke5pH0=
 github.com/AltairaLabs/PromptKit/runtime v1.5.11 h1:SPIjfbPR9nHxlx1jHbx0N3Ua4MgAFOEgBvl05XsAbeY=
 github.com/AltairaLabs/PromptKit/runtime v1.5.11/go.mod h1:m4xV4vJFktNaf4pt3io3CbQogwbbWifxqJA18h+bpQQ=
-github.com/AltairaLabs/PromptKit/sdk v1.5.10 h1:zaIaKyuZ81qWsFqA4NW2zjdzC96RECsOSTGa6feiCvM=
-github.com/AltairaLabs/PromptKit/sdk v1.5.10/go.mod h1:3gXIHPSis5FQ8YQkACQ6NJGGyPXHEL/6SrhmRhFV6Vs=
-github.com/AltairaLabs/PromptKit/server/a2a v1.5.10 h1:YhQDiL4YIzSb9/hVv+5QV/r7Y4c6S3GNEJJTpY6K88o=
-github.com/AltairaLabs/PromptKit/server/a2a v1.5.10/go.mod h1:+OLXRz9VWTuMFRc3WTHjE93ztdzSYVaDJSWsW+6qYOY=
+github.com/AltairaLabs/PromptKit/sdk v1.5.11 h1:LPBSM+zdky94LgOZIHyYfqLhUmdIv/MIGyZBzQocRnA=
+github.com/AltairaLabs/PromptKit/sdk v1.5.11/go.mod h1:RuA+ssuX9udaYm0bFEaqVfWiQPGGRG6Xryxsi/Xy3g4=
+github.com/AltairaLabs/PromptKit/server/a2a v1.5.11 h1:7juYuMsHvrqr+rNaylnjH5zWRy+UhY9oF9jtVAkdpUo=
+github.com/AltairaLabs/PromptKit/server/a2a v1.5.11/go.mod h1:BvF9DbFQV+VQdskJAvd4O9Zt2gRXuayFXDH4G0qrWH8=
 github.com/AltairaLabs/promptarena v1.5.9 h1:rSKMh5R8TN1YTUrcXGa5r8ai/tG+hbHp5Nuv7suw0BY=
 github.com/AltairaLabs/promptarena v1.5.9/go.mod h1:r23Zh/lm6zvCV4XbcvZ4rTyPsHgj76IjNYOG2o+ovuo=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0 h1:4gRPBpN1f6xt88yi4WR26m7XaD9OlWtVT6bWPdGUIok=

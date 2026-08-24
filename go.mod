@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.5.11
-	github.com/AltairaLabs/PromptKit/sdk v1.5.10
+	github.com/AltairaLabs/PromptKit/sdk v1.5.11
 	github.com/AltairaLabs/promptarena v1.5.9
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
@@ -15,7 +15,7 @@ require (
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/AltairaLabs/PromptKit/pkg v1.5.11 // indirect
-	github.com/AltairaLabs/PromptKit/server/a2a v1.5.10 // indirect
+	github.com/AltairaLabs/PromptKit/server/a2a v1.5.11 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
