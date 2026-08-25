@@ -57,3 +57,17 @@ func TestNewSessionStoreSurvivesAnUnusableHome(t *testing.T) {
 		t.Error("newSessionStore returned a store rooted at a file")
 	}
 }
+
+// A container with no resolvable home has nowhere durable to write. It must
+// still serve, because an agent that answers without remembering is worth more
+// than one that refuses to start.
+func TestSessionStoreRootWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	if _, err := sessionStoreRoot(); err == nil {
+		t.Fatal("sessionStoreRoot succeeded with no home")
+	}
+	if store := newSessionStore(quietLogger()); store != nil {
+		t.Error("newSessionStore returned a store with no home to root it in")
+	}
+}

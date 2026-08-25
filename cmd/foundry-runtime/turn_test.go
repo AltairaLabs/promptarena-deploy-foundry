@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -334,5 +335,16 @@ func TestConversationOptionsSkipsTheStoreWithoutAKey(t *testing.T) {
 
 	if got := conversationOptions(nil, &invocationRequest{}, store, ""); len(got) != 0 {
 		t.Errorf("len(opts) = %d, want none", len(got))
+	}
+}
+
+// A pack the runtime cannot open has to surface as an error on the turn rather
+// than a conversation that answers from nothing.
+func TestNewSDKOpenerReportsAnUnopenablePack(t *testing.T) {
+	open := newSDKOpener(
+		filepath.Join(t.TempDir(), "missing.json"), "main", nil, nil, nil, "")
+
+	if _, err := open(&invocationRequest{ConversationID: "c-1"}); err == nil {
+		t.Fatal("opener succeeded on a pack that does not exist")
 	}
 }
