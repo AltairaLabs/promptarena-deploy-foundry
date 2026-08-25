@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -115,14 +116,40 @@ func newSDKOpener(
 	store *file.Store, sessionID string,
 ) turnOpener {
 	return func(req *invocationRequest) (turnConversation, error) {
-		conv, err := sdk.Open(packFile, agentName,
-			conversationOptions(opts, req, store, sessionID)...)
+		conv, err := openOrResume(
+			packFile, agentName, conversationKey(req, sessionID), store,
+			conversationOptions(opts, req, store, sessionID))
 		if err != nil {
 			return nil, fmt.Errorf("open conversation: %w", err)
 		}
 		warnUnsupportedTools(registerToolExecutors(conv, specs))
 		return sdkConversation{conv: conv}, nil
 	}
+}
+
+// openOrResume continues a stored conversation, starting a new one when there
+// is nothing to continue.
+//
+// Open always begins a fresh conversation. With a state store attached that is
+// not enough: the turn would persist its history and the next turn would open
+// past it, so every answer would be a first answer. Resume is the call that
+// reads what was stored -- and a conversation nobody has spoken to yet has no
+// stored state, which is not an error but the first turn.
+func openOrResume(
+	packFile, agentName, key string, store *file.Store, opts []sdk.Option,
+) (*sdk.Conversation, error) {
+	if store == nil || key == "" {
+		return sdk.Open(packFile, agentName, opts...)
+	}
+
+	conv, err := sdk.Resume(key, packFile, agentName, opts...)
+	if err == nil {
+		return conv, nil
+	}
+	if !errors.Is(err, sdk.ErrConversationNotFound) {
+		return nil, err
+	}
+	return sdk.Open(packFile, agentName, opts...)
 }
 
 // newTurnFunc returns a turnFunc that runs one unary turn per request.
