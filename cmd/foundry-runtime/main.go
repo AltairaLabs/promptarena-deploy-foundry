@@ -81,7 +81,8 @@ func run(ctx context.Context, log *slog.Logger) error {
 		log.Info("voice enabled", "route", routeInvocationsWS)
 	}
 
-	open := newSDKOpener(packFile, agentName, opts, specs)
+	sessions := newSessionStore(log)
+	open := newSDKOpener(packFile, agentName, opts, specs, sessions, cfg.SessionID)
 	mux := buildMux(newTurnFunc(open), newStreamFunc(open), voice)
 
 	return runServer(ctx, log, listenAddr(cfg), mux)

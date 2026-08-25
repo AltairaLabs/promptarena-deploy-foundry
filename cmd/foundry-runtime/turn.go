@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/statestore/file"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
@@ -27,19 +28,49 @@ func warnUnsupportedTools(unsupported []string) {
 	})
 }
 
+// conversationKey is the key one turn's history is stored under.
+//
+// The caller's conversation id wins, so one sandbox can carry more than one
+// conversation. Falling back to the sandbox's own session id means a caller who
+// binds turns to a session -- which is what the agent_session_id query
+// parameter does, and the only thing that selects a sandbox -- gets continuity
+// without also having to invent an id of its own.
+//
+// Empty means the caller asked for neither, and the turn stays stateless.
+func conversationKey(req *invocationRequest, sessionID string) string {
+	if req.ConversationID != "" {
+		return req.ConversationID
+	}
+	return sessionID
+}
+
 // conversationOptions adds the per-request options for one turn.
 //
-// The platform manages history for `responses`; over `invocations` the pack
-// stays authoritative, so a conversation id is mapped to a PromptKit session
-// key and nothing more. Letting both sides own history would have them fight
-// over the same responsibility.
-func conversationOptions(base []sdk.Option, req *invocationRequest) []sdk.Option {
-	if req.ConversationID == "" {
+// The platform manages history for `responses`; over `invocations` it stores
+// none, so the pack stays authoritative and history is written to the store
+// under the conversation key. Letting both sides own history would have them
+// fight over the same responsibility.
+//
+// The store is attached only alongside a key. Without one there is nothing to
+// file the history under, and a shared store keyed by nothing would let
+// unrelated callers read each other's turns.
+func conversationOptions(
+	base []sdk.Option, req *invocationRequest, store *file.Store, sessionID string,
+) []sdk.Option {
+	key := conversationKey(req, sessionID)
+	if key == "" {
 		return base
 	}
-	opts := make([]sdk.Option, 0, len(base)+1)
+
+	// The conversation id and the store.
+	const added = 2
+	opts := make([]sdk.Option, 0, len(base)+added)
 	opts = append(opts, base...)
-	return append(opts, sdk.WithConversationID(req.ConversationID))
+	opts = append(opts, sdk.WithConversationID(key))
+	if store != nil {
+		opts = append(opts, sdk.WithStateStore(store))
+	}
+	return opts
 }
 
 // turnConversation is the slice of a conversation one turn uses.
@@ -81,9 +112,11 @@ func (c sdkConversation) Close() error { return c.conv.Close() }
 // model.
 func newSDKOpener(
 	packFile, agentName string, opts []sdk.Option, specs map[string]toolSpec,
+	store *file.Store, sessionID string,
 ) turnOpener {
 	return func(req *invocationRequest) (turnConversation, error) {
-		conv, err := sdk.Open(packFile, agentName, conversationOptions(opts, req)...)
+		conv, err := sdk.Open(packFile, agentName,
+			conversationOptions(opts, req, store, sessionID)...)
 		if err != nil {
 			return nil, fmt.Errorf("open conversation: %w", err)
 		}
