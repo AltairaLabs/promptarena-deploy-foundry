@@ -93,6 +93,46 @@ type Config struct {
 
 	Providers     []ProviderBinding `json:"providers,omitempty"`
 	Observability *Observability    `json:"observability,omitempty"`
+	StateStore    *StateStore       `json:"state_store,omitempty"`
+}
+
+// State store kinds a deployed agent can use for conversation history.
+const (
+	// StateStoreMemory keeps history in the container. Two turns served by the
+	// same container find each other; nothing survives it being replaced.
+	StateStoreMemory = "memory"
+	// StateStoreFile keeps history on the session sandbox filesystem, which
+	// the platform persists across turns and idle periods.
+	StateStoreFile = "file"
+	// StateStoreRedis keeps history outside the container entirely, which is
+	// the only option that holds when more than one serves a conversation.
+	StateStoreRedis = "redis"
+)
+
+// validStateStores is the set of kinds the runtime can build.
+var validStateStores = map[string]bool{
+	StateStoreMemory: true,
+	StateStoreFile:   true,
+	StateStoreRedis:  true,
+}
+
+// StateStore selects where a deployed agent keeps conversation history.
+//
+// Defaults to memory, which needs nothing and remembers a conversation for as
+// long as one container serves it. Reach past it when a conversation has to
+// outlive that.
+type StateStore struct {
+	// Kind is memory, file or redis.
+	Kind string `json:"kind,omitempty"`
+
+	// Root overrides the file store's directory. Defaults to a directory under
+	// the sandbox's $HOME.
+	Root string `json:"root,omitempty"`
+
+	// URLFromEnv names the environment variable holding the redis connection
+	// string. The variable itself, not the URL: a connection string carries a
+	// credential, and the deploy config is not a place to keep one.
+	URLFromEnv string `json:"url_from_env,omitempty"`
 }
 
 // parseConfig unmarshals the provider config JSON and applies defaults.
@@ -138,6 +178,7 @@ func (c *Config) validateStructure() []string {
 	errs = append(errs, c.validateResources()...)
 	errs = append(errs, c.validateProtocols()...)
 	errs = append(errs, c.validateIdleTimeout()...)
+	errs = append(errs, c.validateStateStore()...)
 	errs = append(errs, c.validateStagingContainer()...)
 	errs = append(errs, c.validateObservability()...)
 
@@ -232,6 +273,41 @@ func (c *Config) azureEndpoint() string {
 		return c.AzureEndpoint
 	}
 	return httpsScheme + c.Account + azureOpenAIHostSuffix
+}
+
+// validateStateStore checks the store the agent will build at startup.
+//
+// A store the runtime cannot build leaves an agent that answers but forgets,
+// which is not visible from outside it. Catching it here means the deploy
+// fails instead.
+func (c *Config) validateStateStore() []string {
+	if c.StateStore == nil || c.StateStore.Kind == "" {
+		return nil
+	}
+
+	var errs []string
+	if !validStateStores[c.StateStore.Kind] {
+		errs = append(errs, fmt.Sprintf(
+			"state_store.kind %q is not one of %s, %s, %s",
+			c.StateStore.Kind, StateStoreMemory, StateStoreFile, StateStoreRedis))
+		return errs
+	}
+
+	if c.StateStore.Kind == StateStoreRedis && c.StateStore.URLFromEnv == "" {
+		errs = append(errs, "state_store.kind redis requires url_from_env "+
+			"naming the environment variable that holds the connection string")
+	}
+	if c.StateStore.Kind != StateStoreFile && c.StateStore.Root != "" {
+		errs = append(errs, fmt.Sprintf(
+			"state_store.root only applies to kind %s, not %q",
+			StateStoreFile, c.StateStore.Kind))
+	}
+	if c.StateStore.Kind != StateStoreRedis && c.StateStore.URLFromEnv != "" {
+		errs = append(errs, fmt.Sprintf(
+			"state_store.url_from_env only applies to kind %s, not %q",
+			StateStoreRedis, c.StateStore.Kind))
+	}
+	return errs
 }
 
 // validateStagingContainer checks the Blob container URL is absolute. A bare

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 )
 
 // Environment variable names injected into the runtime container. These must
@@ -25,6 +26,12 @@ const (
 	envProviders      = "PROMPTPACK_PROVIDERS"
 	envToolSpecs      = "PROMPTPACK_TOOL_SPECS"
 	envTracingEnabled = "PROMPTPACK_TRACING_ENABLED"
+	// State store selection. The URL variable is named, never copied: the
+	// adapter tells the runtime which variable holds the connection string and
+	// the secret stays wherever the operator put it.
+	envStateStoreKind = "PROMPTPACK_STATE_STORE"
+	envStateStoreRoot = "PROMPTPACK_STATE_STORE_ROOT"
+	envStateStoreURL  = "PROMPTPACK_STATE_STORE_URL"
 	envOTLPEndpoint   = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	// envAzureEndpoint is the Azure OpenAI endpoint the runtime binds providers
 	// against. Foundry reserves only AGENT_* and FOUNDRY_*, so there is no
@@ -91,6 +98,10 @@ func buildAgentEnv(in *specInput) (vars map[string]string, errors []string) {
 		env[envToolSpecs] = in.ToolSpecsJSON
 	}
 
+	if storeErrs := addStateStoreEnv(env, in.Cfg.StateStore, os.Getenv); len(storeErrs) != 0 {
+		return nil, storeErrs
+	}
+
 	if in.Cfg.Observability != nil && in.Cfg.Observability.TracingEnabled {
 		env[envTracingEnabled] = "true"
 		// Only set the endpoint when overriding: Foundry injects its own, and
@@ -113,6 +124,43 @@ func buildAgentEnv(in *specInput) (vars map[string]string, errors []string) {
 	}
 	env[envPackURI] = in.StagedPackURI
 	return env, nil
+}
+
+// addStateStoreEnv tells the runtime where to keep conversation history.
+//
+// Nothing is written for the default: an absent variable already means memory,
+// and setting it would only add a value to keep in step.
+//
+// The redis URL is read from the deploying environment and written into the
+// agent definition, because environment_variables is the only channel Foundry
+// gives a hosted agent and it takes literal values -- there is no reference
+// syntax to defer the lookup to start-up. That puts the connection string
+// where anyone who can read the agent can read it, which is why the config
+// names a variable rather than carrying the string: the secret stays out of
+// the deploy config and out of version control, even though it lands in the
+// definition.
+func addStateStoreEnv(env map[string]string, store *StateStore, lookupEnv func(string) string) []string {
+	if store == nil || store.Kind == "" || store.Kind == StateStoreMemory {
+		return nil
+	}
+
+	env[envStateStoreKind] = store.Kind
+	if store.Root != "" {
+		env[envStateStoreRoot] = store.Root
+	}
+	if store.URLFromEnv == "" {
+		return nil
+	}
+
+	url := lookupEnv(store.URLFromEnv)
+	if url == "" {
+		return []string{fmt.Sprintf(
+			"state_store.url_from_env names %s, which is unset or empty in this "+
+				"environment; the deployed agent would have no store to connect to",
+			store.URLFromEnv)}
+	}
+	env[envStateStoreURL] = url
+	return nil
 }
 
 // buildTags merges the user's tags with the managed ones. Managed tags are

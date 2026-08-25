@@ -23,6 +23,9 @@ config before the adapter is ever invoked.
 | `azure_endpoint` | string | No | Azure OpenAI endpoint for voice. Derived from `account` when unset. |
 | `staging_container` | string | No | Azure Blob container URL for packs over the inline limit. |
 | `pack_inline_limit_bytes` | integer | No | Size above which the pack is staged. Default 24576. |
+| `state_store.kind` | string | No | Where conversation history lives: `memory`, `file` or `redis`. Default `memory`. |
+| `state_store.root` | string | No | Directory for `file`. Defaults to a directory under the sandbox `$HOME`. |
+| `state_store.url_from_env` | string | No | Environment variable holding the redis connection string. Required for `redis`. |
 | `tags` | map | No | Applied as agent metadata. |
 | `dry_run` | boolean | No | Simulate apply without calling Azure. |
 

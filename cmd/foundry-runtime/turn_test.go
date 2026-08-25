@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore/file"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
@@ -67,7 +69,7 @@ func TestResolveAgentNameAmbiguous(t *testing.T) {
 func TestConversationOptionsAddsTheConversationID(t *testing.T) {
 	base := []sdk.Option{}
 
-	got := conversationOptions(base, &invocationRequest{ConversationID: "c-1"})
+	got := conversationOptions(base, &invocationRequest{ConversationID: "c-1"}, nil, "")
 	if len(got) != 1 {
 		t.Errorf("len(opts) = %d, want the conversation id added", len(got))
 	}
@@ -76,7 +78,7 @@ func TestConversationOptionsAddsTheConversationID(t *testing.T) {
 func TestConversationOptionsWithoutAConversationID(t *testing.T) {
 	base := []sdk.Option{}
 
-	if got := conversationOptions(base, &invocationRequest{}); len(got) != 0 {
+	if got := conversationOptions(base, &invocationRequest{}, nil, ""); len(got) != 0 {
 		t.Errorf("len(opts) = %d, want the base unchanged", len(got))
 	}
 }
@@ -87,7 +89,7 @@ func TestConversationOptionsDoesNotMutateTheBase(t *testing.T) {
 	base := make([]sdk.Option, 0, 4)
 	base = append(base, sdk.WithUserID("t"))
 
-	_ = conversationOptions(base, &invocationRequest{ConversationID: "c-1"})
+	_ = conversationOptions(base, &invocationRequest{ConversationID: "c-1"}, nil, "")
 
 	if len(base) != 1 {
 		t.Errorf("len(base) = %d, want it unchanged", len(base))
@@ -280,5 +282,69 @@ func TestNewStreamFuncReportsAnOpenFailure(t *testing.T) {
 
 	if err := <-errs; err == nil {
 		t.Fatal("stream reported success despite an open failure")
+	}
+}
+
+// A caller that binds its turns to a session but sends no conversation id
+// still gets continuity: the sandbox's own id keys the history. Without this
+// the only way to be remembered was to invent an id, which the platform's own
+// session binding already does.
+func TestConversationOptionsFallsBackToTheSessionID(t *testing.T) {
+	if got := conversationKey(&invocationRequest{}, "sess-9"); got != "sess-9" {
+		t.Errorf("conversationKey = %q, want the session id", got)
+	}
+}
+
+// An explicit conversation id wins, so one sandbox can carry more than one
+// conversation.
+func TestConversationKeyPrefersTheConversationID(t *testing.T) {
+	got := conversationKey(&invocationRequest{ConversationID: "c-1"}, "sess-9")
+	if got != "c-1" {
+		t.Errorf("conversationKey = %q, want the conversation id", got)
+	}
+}
+
+// Neither id means the caller asked for no continuity, and attaching a store
+// keyed by nothing would let unrelated callers read each other's turns.
+func TestConversationKeyEmptyWhenNeitherIsSet(t *testing.T) {
+	if got := conversationKey(&invocationRequest{}, ""); got != "" {
+		t.Errorf("conversationKey = %q, want empty", got)
+	}
+}
+
+// The store is attached whenever there is a key to file history under.
+func TestConversationOptionsAttachesTheStore(t *testing.T) {
+	store, err := file.NewStore(file.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	got := conversationOptions(nil, &invocationRequest{}, store, "sess-9")
+	if len(got) != 2 {
+		t.Errorf("len(opts) = %d, want the conversation id and the store", len(got))
+	}
+}
+
+// A stateless turn must not get the store, or its history would be filed
+// under whatever key the SDK defaulted to.
+func TestConversationOptionsSkipsTheStoreWithoutAKey(t *testing.T) {
+	store, err := file.NewStore(file.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	if got := conversationOptions(nil, &invocationRequest{}, store, ""); len(got) != 0 {
+		t.Errorf("len(opts) = %d, want none", len(got))
+	}
+}
+
+// A pack the runtime cannot open has to surface as an error on the turn rather
+// than a conversation that answers from nothing.
+func TestNewSDKOpenerReportsAnUnopenablePack(t *testing.T) {
+	open := newSDKOpener(
+		filepath.Join(t.TempDir(), "missing.json"), "main", nil, nil, nil, "")
+
+	if _, err := open(&invocationRequest{ConversationID: "c-1"}); err == nil {
+		t.Fatal("opener succeeded on a pack that does not exist")
 	}
 }

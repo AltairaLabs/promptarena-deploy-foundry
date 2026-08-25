@@ -66,7 +66,7 @@ without inspecting the schema — so this shape is the runtime's own.
 |---|---|---|
 | `message` | string | The user's turn. `input` and `prompt` are accepted aliases. |
 | `stream` | boolean | Return SSE deltas instead of a single JSON body. |
-| `conversation_id` | string | Maps to a PromptKit session key. |
+| `conversation_id` | string | Keys the stored history. Defaults to the session id. |
 
 Unary responses are `{"output": "…"}`. Streaming responses are
 `data: {"delta":"…"}` frames followed by `data: [DONE]`; a failure after
@@ -87,6 +87,21 @@ platform routes to.
 ```bash
 ./scripts/invoke.sh --session "$SESSION_ID" "and their hex codes?"
 ```
+
+### Conversation history
+
+The agent writes each turn's history under `$HOME`, which the platform persists
+across turns and across idle periods, restoring it when the session is
+referenced again. Reusing the session id is therefore all a caller needs for
+the agent to remember the conversation — including after the platform has
+deprovisioned the compute and brought it back. Sessions live for up to 30 days.
+
+Because the sandbox is selected by the query parameter alone, a caller that
+omits it gets a new sandbox, and an empty history, on every turn.
+
+Send `conversation_id` only to keep several conversations apart inside one
+session. Left unset it defaults to the session id, which is the common case.
+A call with neither is stateless: nothing is stored and nothing is recalled.
 
 Sessions idle out after the configured `idle_timeout_minutes` (5–60, default
 15), at which point compute is released and `$HOME` is preserved. Referencing

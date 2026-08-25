@@ -2,6 +2,7 @@ package foundry
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -224,5 +225,68 @@ func TestBuildAgentSpecHonoursAnExplicitAzureEndpoint(t *testing.T) {
 
 	if spec.Env[envAzureEndpoint] != "https://custom.openai.azure.com/" {
 		t.Errorf("%s = %q, want the override", envAzureEndpoint, spec.Env[envAzureEndpoint])
+	}
+}
+
+// The default writes nothing: an absent variable already means memory, and a
+// value the runtime would have to keep in step is a value that can drift.
+func TestAddStateStoreEnvWritesNothingForTheDefault(t *testing.T) {
+	for _, store := range []*StateStore{nil, {}, {Kind: StateStoreMemory}} {
+		env := map[string]string{}
+		if errs := addStateStoreEnv(env, store, func(string) string { return "" }); len(errs) != 0 {
+			t.Fatalf("addStateStoreEnv: %v", errs)
+		}
+		if len(env) != 0 {
+			t.Errorf("env = %v, want empty", env)
+		}
+	}
+}
+
+func TestAddStateStoreEnvCarriesTheFileRoot(t *testing.T) {
+	env := map[string]string{}
+	addStateStoreEnv(env, &StateStore{Kind: StateStoreFile, Root: "/mnt/state"},
+		func(string) string { return "" })
+
+	if env[envStateStoreKind] != StateStoreFile {
+		t.Errorf("%s = %q", envStateStoreKind, env[envStateStoreKind])
+	}
+	if env[envStateStoreRoot] != "/mnt/state" {
+		t.Errorf("%s = %q", envStateStoreRoot, env[envStateStoreRoot])
+	}
+}
+
+// The connection string is read at apply time from the named variable. It is
+// never taken from the deploy config, which is what keeps the secret out of
+// version control even though it lands in the agent definition.
+func TestAddStateStoreEnvResolvesTheRedisURL(t *testing.T) {
+	env := map[string]string{}
+	errs := addStateStoreEnv(env, &StateStore{Kind: StateStoreRedis, URLFromEnv: "MY_REDIS"},
+		func(name string) string {
+			if name == "MY_REDIS" {
+				return "redis://cache:6379/0"
+			}
+			return ""
+		})
+
+	if len(errs) != 0 {
+		t.Fatalf("addStateStoreEnv: %v", errs)
+	}
+	if env[envStateStoreURL] != "redis://cache:6379/0" {
+		t.Errorf("%s = %q", envStateStoreURL, env[envStateStoreURL])
+	}
+}
+
+// An unset variable has to fail the deploy. The alternative is an agent that
+// starts, answers, and quietly remembers nothing.
+func TestAddStateStoreEnvRefusesAnUnsetURLVariable(t *testing.T) {
+	env := map[string]string{}
+	errs := addStateStoreEnv(env, &StateStore{Kind: StateStoreRedis, URLFromEnv: "MISSING"},
+		func(string) string { return "" })
+
+	if len(errs) == 0 {
+		t.Fatal("addStateStoreEnv accepted an unset URL variable")
+	}
+	if !strings.Contains(errs[0], "MISSING") {
+		t.Errorf("error = %q, want it to name the variable", errs[0])
 	}
 }
