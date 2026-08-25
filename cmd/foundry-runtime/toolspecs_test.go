@@ -159,3 +159,69 @@ func TestRenderMockTemplateNonJSONFallsBack(t *testing.T) {
 		t.Error("rendered nil, want the text wrapped")
 	}
 }
+
+// Every binding the arena can declare has to survive the trip from injected
+// JSON to the SDK config. The adapter forwards a tool spec verbatim, so a field
+// this runtime has no home for is dropped by the decoder in silence: the tool
+// deploys, reports healthy, and calls its API without the header it was told to
+// send. Asserting the config is non-nil — which is all the older tests did —
+// cannot see that, so this walks the whole path and checks each field.
+func TestHTTPToolConfigCarriesEveryBinding(t *testing.T) {
+	raw := `{"lookup":{
+		"name":"lookup",
+		"mode":"live",
+		"http":{
+			"url":"https://example.test/x",
+			"method":"POST",
+			"headers":{"X-Api-Key":"secret","X-Trace":"on"},
+			"headers_from_env":["Authorization=LOOKUP_TOKEN"],
+			"timeout_ms":2500,
+			"redact":["ssn","card"]
+		}
+	}}`
+
+	specs, err := parseToolSpecs(raw)
+	if err != nil {
+		t.Fatalf("parseToolSpecs: %v", err)
+	}
+
+	got := httpToolConfig(specs["lookup"]).ToDescriptorConfig()
+
+	if got.URL != "https://example.test/x" {
+		t.Errorf("URL = %q", got.URL)
+	}
+	if got.Method != "POST" {
+		t.Errorf("Method = %q", got.Method)
+	}
+	if got.Headers["X-Api-Key"] != "secret" || got.Headers["X-Trace"] != "on" {
+		t.Errorf("Headers = %v, want both static headers", got.Headers)
+	}
+	if len(got.HeadersFromEnv) != 1 || got.HeadersFromEnv[0] != "Authorization=LOOKUP_TOKEN" {
+		t.Errorf("HeadersFromEnv = %v", got.HeadersFromEnv)
+	}
+	if got.TimeoutMs != 2500 {
+		t.Errorf("TimeoutMs = %d, want 2500", got.TimeoutMs)
+	}
+	if len(got.Redact) != 2 || got.Redact[0] != "ssn" || got.Redact[1] != "card" {
+		t.Errorf("Redact = %v, want [ssn card]", got.Redact)
+	}
+}
+
+// Header order must not vary between builds of the same spec: map iteration is
+// random, and a config that differs run to run makes the deploy hash unstable.
+func TestHTTPToolConfigOrdersHeadersStably(t *testing.T) {
+	spec := toolSpec{Name: "fetch", HTTP: &toolHTTP{
+		URL:     "https://example.test/x",
+		Headers: map[string]string{"B": "2", "A": "1", "C": "3"},
+	}}
+
+	first := httpToolConfig(spec).ToDescriptorConfig().Headers
+	for i := 0; i < 20; i++ {
+		if got := httpToolConfig(spec).ToDescriptorConfig().Headers; len(got) != len(first) {
+			t.Fatalf("header count varied: %v vs %v", got, first)
+		}
+	}
+	if first["A"] != "1" || first["B"] != "2" || first["C"] != "3" {
+		t.Errorf("Headers = %v", first)
+	}
+}
