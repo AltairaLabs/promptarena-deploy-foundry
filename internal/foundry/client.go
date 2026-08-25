@@ -98,4 +98,8 @@ type foundryClient interface {
 	// DeleteAgent removes an agent. Deleting one that is already gone is not an
 	// error, so destroy converges on an already-clean project.
 	DeleteAgent(ctx context.Context, name string) error
+	// StageObject writes data to a blob URI, overwriting any blob already
+	// there. Staged pack names are content-addressed, so an overwrite is
+	// rewriting identical bytes.
+	StageObject(ctx context.Context, uri string, data []byte) error
 }

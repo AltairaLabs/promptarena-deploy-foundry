@@ -109,3 +109,10 @@ func cloneAgent(a *Agent) *Agent {
 	out.Metadata = maps.Clone(a.Metadata)
 	return &out
 }
+
+// StageObject records the staged pack without writing anything. A dry run must
+// not touch storage, and the URI it would have written is already determined by
+// the pack hash.
+func (c *dryRunClient) StageObject(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
