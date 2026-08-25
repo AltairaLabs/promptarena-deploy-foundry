@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -17,9 +18,29 @@ const (
 )
 
 // toolHTTP is the HTTP binding for a live tool.
+//
+// Every field the arena can declare has to appear here. The adapter forwards a
+// tool's spec verbatim, so a binding this struct has no field for is dropped by
+// the JSON decoder without a word — which is how an authenticated tool came to
+// deploy clean and then call its API with no credentials.
 type toolHTTP struct {
 	URL    string `json:"url"`
 	Method string `json:"method,omitempty"`
+
+	// Headers are sent on every request.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// HeadersFromEnv names headers whose values come from the agent's
+	// environment, as "Header-Name=ENV_VAR". The value is read in the runtime
+	// at call time, so a secret reaches the tool without the adapter ever
+	// holding it.
+	HeadersFromEnv []string `json:"headers_from_env,omitempty"`
+
+	// TimeoutMs caps a single call.
+	TimeoutMs int `json:"timeout_ms,omitempty"`
+
+	// Redact names fields to keep out of logs and traces.
+	Redact []string `json:"redact,omitempty"`
 }
 
 // toolSpec is the executable subset of an arena tool definition. The compiled
@@ -122,9 +143,37 @@ func registerToolExecutors(conv *sdk.Conversation, specs map[string]toolSpec) []
 
 // httpToolConfig builds the SDK's HTTP tool config from a spec.
 func httpToolConfig(spec toolSpec) *sdktools.HTTPToolConfig {
+	http := spec.HTTP
 	opts := []sdktools.HTTPToolOption{}
-	if spec.HTTP.Method != "" {
-		opts = append(opts, sdktools.WithMethod(spec.HTTP.Method))
+
+	if http.Method != "" {
+		opts = append(opts, sdktools.WithMethod(http.Method))
 	}
-	return sdktools.NewHTTPToolConfig(spec.HTTP.URL, opts...)
+	if http.TimeoutMs > 0 {
+		opts = append(opts, sdktools.WithTimeout(http.TimeoutMs))
+	}
+	if len(http.Redact) > 0 {
+		opts = append(opts, sdktools.WithRedact(http.Redact...))
+	}
+
+	// Sorted so the same spec always produces the same config; map order
+	// would otherwise vary between calls.
+	for _, key := range sortedHeaderKeys(http.Headers) {
+		opts = append(opts, sdktools.WithHeader(key, http.Headers[key]))
+	}
+	for _, headerEnv := range http.HeadersFromEnv {
+		opts = append(opts, sdktools.WithHeaderFromEnv(headerEnv))
+	}
+
+	return sdktools.NewHTTPToolConfig(http.URL, opts...)
+}
+
+// sortedHeaderKeys returns a map's keys in a stable order.
+func sortedHeaderKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
