@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
 
@@ -44,6 +45,16 @@ func parseBlobURI(uri string) (blobURIParts, error) {
 	}, nil
 }
 
+// blobClientOptions returns the Blob client options, nil for the default.
+func (c *restClient) blobClientOptions() *azblob.ClientOptions {
+	if c.blobTransport == nil {
+		return nil
+	}
+	return &azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Transport: c.blobTransport},
+	}
+}
+
 // StageObject writes data to a blob URI using the ambient Azure credential.
 //
 // The credential needs a data-plane role on the container -- Storage Blob Data
@@ -60,7 +71,7 @@ func (c *restClient) StageObject(ctx context.Context, uri string, data []byte) e
 		return err
 	}
 
-	client, err := azblob.NewClient(parts.Service, c.cred, nil)
+	client, err := azblob.NewClient(parts.Service, c.cred, c.blobClientOptions())
 	if err != nil {
 		return fmt.Errorf("blob client for %s: %w", parts.Service, err)
 	}

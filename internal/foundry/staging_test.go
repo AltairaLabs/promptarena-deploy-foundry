@@ -3,6 +3,8 @@ package foundry
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -179,5 +181,90 @@ func TestParseBlobURI(t *testing.T) {
 func TestParseBlobURIRejectsAContainerlessURL(t *testing.T) {
 	if _, err := parseBlobURI("https://acct.blob.core.windows.net/"); err == nil {
 		t.Fatal("parseBlobURI accepted a URL naming no container")
+	}
+}
+
+// blobTestClient wires a restClient's Blob path to an httptest server.
+func blobTestClient(t *testing.T, handler http.HandlerFunc) (*restClient, string) {
+	t.Helper()
+	srv := newTLSServer(t, handler)
+	return &restClient{cred: fakeCredential{}, blobTransport: srv.Client()}, srv.URL
+}
+
+// The upload is the whole point of staging, so it is exercised rather than
+// assumed: a blob URI has to become a PUT of the pack bytes to the right path.
+func TestStageObjectUploadsToTheBlobPath(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody []byte
+	client, base := blobTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("ETag", `"abc"`)
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	err := client.StageObject(
+		context.Background(), base+"/packs/abc123.json", []byte(`{"id":"p"}`))
+	if err != nil {
+		t.Fatalf("StageObject: %v", err)
+	}
+
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %s, want PUT", gotMethod)
+	}
+	if gotPath != "/packs/abc123.json" {
+		t.Errorf("path = %q, want /packs/abc123.json", gotPath)
+	}
+	if string(gotBody) != `{"id":"p"}` {
+		t.Errorf("body = %q", gotBody)
+	}
+}
+
+// A refused upload has to surface. Staging that fails quietly would leave the
+// agent pointed at a blob that does not exist.
+func TestStageObjectReportsAFailedUpload(t *testing.T) {
+	client, base := blobTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+
+	err := client.StageObject(
+		context.Background(), base+"/packs/abc123.json", []byte(`{}`))
+	if err == nil {
+		t.Fatal("StageObject succeeded on a 403")
+	}
+}
+
+func TestStageObjectWithoutACredential(t *testing.T) {
+	c := &restClient{}
+	if err := c.StageObject(
+		context.Background(), "https://a.blob.core.windows.net/p/x.json", nil); err == nil {
+		t.Fatal("StageObject succeeded with no credential")
+	}
+}
+
+func TestStageObjectRejectsAMalformedURI(t *testing.T) {
+	c := &restClient{cred: fakeCredential{}}
+	if err := c.StageObject(context.Background(), "https://a.blob.core.windows.net/", nil); err == nil {
+		t.Fatal("StageObject accepted a URI naming no blob")
+	}
+}
+
+// stagePack refuses rather than silently inlining when it has nowhere to stage.
+func TestStagePackWithoutAContainer(t *testing.T) {
+	in := &planContext{
+		Cfg:      &Config{},
+		Delivery: PackDelivery{Inline: false, SizeBytes: 40000},
+	}
+	if _, err := stagePack(context.Background(), &recordingStager{}, in, "{}"); err == nil {
+		t.Fatal("stagePack succeeded with no staging_container")
+	}
+}
+
+func TestEffectiveInlineLimitFallsBackToTheDefault(t *testing.T) {
+	if got := effectiveInlineLimit(&Config{}); got != DefaultPackInlineLimitBytes {
+		t.Errorf("effectiveInlineLimit = %d, want %d", got, DefaultPackInlineLimitBytes)
+	}
+	if got := effectiveInlineLimit(&Config{PackInlineLimitBytes: 99}); got != 99 {
+		t.Errorf("effectiveInlineLimit = %d, want 99", got)
 	}
 }
