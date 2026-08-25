@@ -159,6 +159,11 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	delivery := decidePackDelivery(req.PackJSON, cfg)
+	if deliveryErrs := validatePackDelivery(delivery, cfg); len(deliveryErrs) != 0 {
+		return nil, fmt.Errorf("pack delivery: %s", strings.Join(deliveryErrs, "; "))
+	}
 	configHash, err := hashPlanConfig(cfg, resolved, toolSpecs)
 	if err != nil {
 		return nil, err
@@ -183,7 +188,7 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 		ConfigHash:    configHash,
 		Bindings:      resolved,
 		ToolSpecsJSON: toolSpecs,
-		Delivery:      decidePackDelivery(req.PackJSON, cfg),
+		Delivery:      delivery,
 	}, nil
 }
 

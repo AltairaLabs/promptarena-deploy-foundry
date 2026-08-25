@@ -17,6 +17,7 @@ require (
 	github.com/AltairaLabs/PromptKit/pkg v1.5.11 // indirect
 	github.com/AltairaLabs/PromptKit/server/a2a v1.5.10 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.43.5 // indirect

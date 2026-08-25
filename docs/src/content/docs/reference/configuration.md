@@ -26,6 +26,27 @@ config before the adapter is ever invoked.
 | `tags` | map | No | Applied as agent metadata. |
 | `dry_run` | boolean | No | Simulate apply without calling Azure. |
 
+## Staging large packs
+
+A pack that serializes to more than `pack_inline_limit_bytes` cannot travel as
+an environment variable, so it is uploaded to Blob storage and the agent reads
+it from there. Set `staging_container` to the container URL:
+
+```json
+"staging_container": "https://myaccount.blob.core.windows.net/promptkit"
+```
+
+The blob is named after a hash of the pack, so re-deploying an unchanged pack
+uploads nothing.
+
+The credential running the deploy needs a data-plane role on that container —
+**Storage Blob Data Contributor** is the usual choice. Access to the Foundry
+project does not grant it: without the role the deploy signs in normally and
+then fails on the upload.
+
+A pack over the limit with no `staging_container` set is refused at plan time,
+before anything is created.
+
 ## Provider bindings
 
 ```yaml

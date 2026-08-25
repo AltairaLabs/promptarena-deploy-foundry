@@ -53,6 +53,12 @@ type restClient struct {
 
 	pollDelay   time.Duration
 	pollTimeout time.Duration
+	// cred is retained for Blob storage, which needs its own client rather
+	// than the control-plane pipeline.
+	cred azcore.TokenCredential
+	// blobTransport overrides the Blob client's transport. Nil uses the
+	// default; tests point it at an httptest server.
+	blobTransport policy.Transporter
 }
 
 // newClient builds a client for cfg using the ambient Azure credential.
@@ -89,6 +95,7 @@ func newRESTClient(
 	return &restClient{
 		baseURL:     baseURL,
 		pipeline:    pipeline,
+		cred:        cred,
 		pollDelay:   defaultPollDelay,
 		pollTimeout: defaultPollTimeout,
 	}, nil

@@ -23,6 +23,9 @@ type applyInput struct {
 	AgentName  string
 	PackHash   string
 	ConfigHash string
+	// StagedPackURI is where the pack was uploaded, empty for an inline pack.
+	// State records it so the next apply can skip re-uploading identical bytes.
+	StagedPackURI string
 	// NeedsModelGrant is true when the pack declares speech bindings. Only
 	// voice needs it: text inference goes through the project endpoint, where
 	// the agent already has implicit access.
@@ -50,6 +53,18 @@ func (p *Provider) Apply(
 		return "", err
 	}
 
+	client, err := p.newControlPlaneClient(ctx, in.Cfg)
+	if err != nil {
+		return "", err
+	}
+
+	// Staging precedes the spec because the spec carries the URI the agent
+	// reads the pack from.
+	stagedPackURI, err := stagePack(ctx, client, in, req.PackJSON)
+	if err != nil {
+		return "", err
+	}
+
 	spec, specErrs := buildAgentSpec(&specInput{
 		Cfg:           in.Cfg,
 		AgentName:     in.AgentName,
@@ -57,15 +72,11 @@ func (p *Provider) Apply(
 		PackJSON:      req.PackJSON,
 		Bindings:      in.Bindings,
 		Delivery:      in.Delivery,
+		StagedPackURI: stagedPackURI,
 		ToolSpecsJSON: in.ToolSpecsJSON,
 	})
 	if len(specErrs) != 0 {
 		return "", fmt.Errorf("build agent spec: %s", joinErrors(specErrs))
-	}
-
-	client, err := p.newControlPlaneClient(ctx, in.Cfg)
-	if err != nil {
-		return "", err
 	}
 
 	var report *adaptersdk.ProgressReporter
@@ -76,6 +87,7 @@ func (p *Provider) Apply(
 	next, applyErr := applyAgent(ctx, client, &applyInput{
 		Cfg:             in.Cfg,
 		Spec:            spec,
+		StagedPackURI:   stagedPackURI,
 		AgentName:       in.AgentName,
 		PackHash:        in.PackHash,
 		ConfigHash:      in.ConfigHash,
@@ -99,6 +111,7 @@ func applyAgent(
 	state := *prior
 	state.Version = StateVersion
 	state.AdapterVersion = Version
+	state.StagedPackURI = in.StagedPackURI
 
 	if ensureErr := ensureAgent(ctx, client, in, &state, report); ensureErr != nil {
 		return &state, ensureErr
