@@ -27,6 +27,13 @@ const (
 	// address. Unlike vertex's project/location, there is no reserved-name
 	// collision here — Foundry reserves only AGENT_* and FOUNDRY_*.
 	envAzureEndpoint = "PROMPTPACK_AZURE_ENDPOINT"
+
+	// State store selection. The kind and root travel in the deploy config;
+	// the URL carries a credential and is injected separately, so the adapter
+	// names the variable without ever holding the secret.
+	envStateStoreKind = "PROMPTPACK_STATE_STORE"
+	envStateStoreRoot = "PROMPTPACK_STATE_STORE_ROOT"
+	envStateStoreURL  = "PROMPTPACK_STATE_STORE_URL"
 )
 
 // Environment variables Foundry injects into every hosted agent container.
@@ -83,6 +90,14 @@ type runtimeConfig struct {
 
 	OTLPEndpoint   string
 	TracingEnabled bool
+
+	// StateStoreKind selects where conversation history lives: memory, file or
+	// redis. Empty means memory.
+	StateStoreKind string
+	// StateStoreRoot overrides the file store's directory.
+	StateStoreRoot string
+	// StateStoreURL is the redis connection string.
+	StateStoreURL string
 }
 
 // loadConfig reads configuration through getenv, which tests substitute.
@@ -98,6 +113,10 @@ func loadConfig(getenv func(string) string) (*runtimeConfig, error) {
 		ProvidersJSON: getenv(envProviders),
 		ToolSpecsJSON: getenv(envToolSpecs),
 		AzureEndpoint: getenv(envAzureEndpoint),
+
+		StateStoreKind: getenv(envStateStoreKind),
+		StateStoreRoot: getenv(envStateStoreRoot),
+		StateStoreURL:  getenv(envStateStoreURL),
 
 		Port:            getenv(envPort),
 		ProjectEndpoint: getenv(envFoundryProjectEP),

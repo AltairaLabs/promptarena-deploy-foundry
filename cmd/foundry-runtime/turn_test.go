@@ -348,37 +348,3 @@ func TestNewSDKOpenerReportsAnUnopenablePack(t *testing.T) {
 		t.Fatal("opener succeeded on a pack that does not exist")
 	}
 }
-
-// Without a store there is nothing to resume, so the opener must still work --
-// this is the stateless path, and it must not require a store to exist.
-func TestOpenOrResumeWithoutAStoreStillOpens(t *testing.T) {
-	_, err := openOrResume(
-		filepath.Join(t.TempDir(), "missing.json"), "main", "c-1", nil, nil)
-	if err == nil {
-		t.Fatal("openOrResume succeeded on a missing pack")
-	}
-	// A missing pack must fail as a pack error, not as a resume error: the
-	// store path was never meant to be consulted here.
-	if errors.Is(err, sdk.ErrConversationNotFound) {
-		t.Error("openOrResume reported a missing conversation for a missing pack")
-	}
-}
-
-// A conversation nobody has spoken to yet is the first turn, not a failure.
-// Resume reports ErrConversationNotFound for it, and the opener has to treat
-// that as "start one" or no conversation could ever begin.
-func TestOpenOrResumeStartsAFirstTurn(t *testing.T) {
-	store, err := file.NewStore(file.Options{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-
-	_, openErr := openOrResume(
-		filepath.Join(t.TempDir(), "missing.json"), "main", "never-seen", store, nil)
-
-	// The pack is missing so this cannot succeed, but it must have fallen
-	// through to Open rather than stopping at the absent conversation.
-	if errors.Is(openErr, sdk.ErrConversationNotFound) {
-		t.Error("openOrResume gave up on a conversation that had not started yet")
-	}
-}

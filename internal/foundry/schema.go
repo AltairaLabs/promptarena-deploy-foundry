@@ -51,6 +51,26 @@ const configSchema = `{
       "type": "string",
       "description": "Azure OpenAI endpoint the deployed agent binds providers against; derived from account when unset"
     },
+    "state_store": {
+      "type": "object",
+      "description": "Where the deployed agent keeps conversation history. Defaults to memory.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["memory", "file", "redis"],
+          "description": "memory: one container. file: the session sandbox. redis: shared across containers."
+        },
+        "root": {
+          "type": "string",
+          "description": "Directory for kind file; defaults to a directory under the sandbox $HOME"
+        },
+        "url_from_env": {
+          "type": "string",
+          "description": "Environment variable holding the redis URL, read at deploy time"
+        }
+      },
+      "additionalProperties": false
+    },
     "staging_container": {
       "type": "string",
       "description": "Azure Blob container URL for packs too large to inline as environment variables"

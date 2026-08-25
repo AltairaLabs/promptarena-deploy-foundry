@@ -178,3 +178,65 @@ func containsSubstring(list []string, sub string) bool {
 	}
 	return false
 }
+
+// The default is memory, so an unconfigured deploy needs no state_store block.
+func TestValidateStateStoreAcceptsAnAbsentBlock(t *testing.T) {
+	cfg := &Config{}
+	if errs := cfg.validateStateStore(); len(errs) != 0 {
+		t.Errorf("validateStateStore = %v, want none", errs)
+	}
+}
+
+func TestValidateStateStoreRejectsAnUnknownKind(t *testing.T) {
+	cfg := &Config{StateStore: &StateStore{Kind: "postgres"}}
+
+	errs := cfg.validateStateStore()
+	if len(errs) == 0 {
+		t.Fatal("validateStateStore accepted an unknown kind")
+	}
+	if !strings.Contains(errs[0], "postgres") {
+		t.Errorf("error = %q, want it to name the bad kind", errs[0])
+	}
+}
+
+// redis without a URL variable would deploy an agent that cannot reach its
+// store, and nothing outside the container would show it.
+func TestValidateStateStoreRedisNeedsAURLVariable(t *testing.T) {
+	cfg := &Config{StateStore: &StateStore{Kind: StateStoreRedis}}
+
+	errs := cfg.validateStateStore()
+	if len(errs) == 0 {
+		t.Fatal("validateStateStore accepted redis with no url_from_env")
+	}
+	if !strings.Contains(errs[0], "url_from_env") {
+		t.Errorf("error = %q, want it to name the missing field", errs[0])
+	}
+}
+
+// A field that applies to another kind is a misunderstanding worth reporting:
+// silently ignoring root on a redis store leaves the operator believing they
+// configured something.
+func TestValidateStateStoreRejectsFieldsForTheWrongKind(t *testing.T) {
+	cfg := &Config{StateStore: &StateStore{Kind: StateStoreMemory, Root: "/tmp/x"}}
+	if errs := cfg.validateStateStore(); len(errs) == 0 {
+		t.Error("validateStateStore accepted root on a memory store")
+	}
+
+	cfg = &Config{StateStore: &StateStore{
+		Kind: StateStoreFile, Root: "/tmp/x", URLFromEnv: "REDIS_URL"}}
+	if errs := cfg.validateStateStore(); len(errs) == 0 {
+		t.Error("validateStateStore accepted url_from_env on a file store")
+	}
+}
+
+func TestValidateStateStoreAcceptsEachKind(t *testing.T) {
+	for _, cfg := range []*Config{
+		{StateStore: &StateStore{Kind: StateStoreMemory}},
+		{StateStore: &StateStore{Kind: StateStoreFile, Root: "/mnt/state"}},
+		{StateStore: &StateStore{Kind: StateStoreRedis, URLFromEnv: "REDIS_URL"}},
+	} {
+		if errs := cfg.validateStateStore(); len(errs) != 0 {
+			t.Errorf("kind %s: %v", cfg.StateStore.Kind, errs)
+		}
+	}
+}
