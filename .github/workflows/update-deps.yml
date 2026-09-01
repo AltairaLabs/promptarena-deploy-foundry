@@ -41,6 +41,22 @@ jobs:
           echo "Updating promptarena to $VERSION..."
           go mod edit -require="github.com/AltairaLabs/promptarena@$VERSION"
           go mod edit -dropreplace="github.com/AltairaLabs/promptarena"
+          go mod tidy
+
+          # promptarena drags PromptKit's runtime forward transitively, but
+          # nothing forces the modules this repo depends on *directly* to
+          # follow. The mismatch does not fail here — it fails inside the SDK,
+          # which is exactly what v1.6.4 did: sdk@v1.5.10 compiled against
+          # runtime v1.9.0, "packPrompt.ToPromptConfig undefined". PromptKit
+          # tags its modules in lockstep, so pin the family to whatever runtime
+          # resolved to.
+          PK=$(go list -m -f '{{.Version}}' github.com/AltairaLabs/PromptKit/runtime)
+          echo "Aligning PromptKit modules to $PK..."
+          for m in runtime pkg sdk server/a2a; do
+            if grep -q "github.com/AltairaLabs/PromptKit/$m " go.mod; then
+              go mod edit -require="github.com/AltairaLabs/PromptKit/$m@$PK"
+            fi
+          done
         else
           echo "Updating PromptKit modules to $VERSION..."
 
