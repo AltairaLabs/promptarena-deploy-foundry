@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore/file"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -24,19 +25,19 @@ func TestResolveAgentName(t *testing.T) {
 		{
 			name: "an explicit agent wins",
 			cfg:  &runtimeConfig{AgentName: "pinned"},
-			pack: &prompt.Pack{Agents: &prompt.AgentsConfig{Entry: "entry"}},
+			pack: &prompt.Pack{Pack: packspec.Pack{Agents: &prompt.AgentsConfig{Entry: "entry"}}},
 			want: "pinned",
 		},
 		{
 			name: "otherwise the pack's entry",
 			cfg:  &runtimeConfig{},
-			pack: &prompt.Pack{Agents: &prompt.AgentsConfig{Entry: "entry"}},
+			pack: &prompt.Pack{Pack: packspec.Pack{Agents: &prompt.AgentsConfig{Entry: "entry"}}},
 			want: "entry",
 		},
 		{
 			name: "a single prompt needs no entry",
 			cfg:  &runtimeConfig{},
-			pack: &prompt.Pack{Prompts: map[string]*prompt.PackPrompt{"solo": {}}},
+			pack: &prompt.Pack{Pack: packspec.Pack{Prompts: map[string]*prompt.PackPrompt{"solo": {}}}},
 			want: "solo",
 		},
 	}
@@ -57,7 +58,7 @@ func TestResolveAgentName(t *testing.T) {
 // Ambiguity must fail at startup rather than pick arbitrarily and serve the
 // wrong agent for the life of the deployment.
 func TestResolveAgentNameAmbiguous(t *testing.T) {
-	pack := &prompt.Pack{Prompts: map[string]*prompt.PackPrompt{"a": {}, "b": {}}}
+	pack := &prompt.Pack{Pack: packspec.Pack{Prompts: map[string]*prompt.PackPrompt{"a": {}, "b": {}}}}
 
 	if _, err := resolveAgentName(&runtimeConfig{}, pack); err == nil {
 		t.Fatal("resolveAgentName picked one of several prompts")
