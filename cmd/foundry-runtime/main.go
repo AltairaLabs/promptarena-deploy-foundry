@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // Version is the runtime build version, set at link time by the Dockerfile.

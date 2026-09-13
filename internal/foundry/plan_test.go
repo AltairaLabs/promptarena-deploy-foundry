@@ -3,7 +3,7 @@ package foundry
 import (
 	"testing"
 
-	"github.com/AltairaLabs/promptarena/deploy"
+	"github.com/AltairaLabs/promptarena/v2/deploy"
 )
 
 func basePlanInput() *planInput {

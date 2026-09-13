@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AltairaLabs/promptarena/deploy"
+	"github.com/AltairaLabs/promptarena/v2/deploy"
 )
 
 // Resource type names surfaced in plans.

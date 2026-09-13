@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // Tool execution modes this runtime supports.
