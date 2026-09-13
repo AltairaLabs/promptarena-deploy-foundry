@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/promptarena/deploy/adaptersdk"
+	"github.com/AltairaLabs/promptarena/v2/deploy/adaptersdk"
 
 	"github.com/AltairaLabs/promptarena-deploy-foundry/internal/foundry"
 )

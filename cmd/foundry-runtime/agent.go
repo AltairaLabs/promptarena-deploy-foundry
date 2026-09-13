@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // resolveAgentName determines which agent/prompt this runtime serves.
