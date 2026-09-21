@@ -3,7 +3,7 @@ module github.com/AltairaLabs/promptarena-deploy-foundry
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime/v2 v2.1.0
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.3.0
 	github.com/AltairaLabs/PromptKit/sdk/v2 v2.1.0
 	github.com/AltairaLabs/promptarena/v2 v2.0.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
