@@ -6,7 +6,7 @@ require (
 	github.com/AltairaLabs/PromptKit/runtime/v2 v2.9.1
 	github.com/AltairaLabs/PromptKit/sdk/v2 v2.9.1
 	github.com/AltairaLabs/promptarena/v2 v2.3.0
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/gorilla/websocket v1.5.3
