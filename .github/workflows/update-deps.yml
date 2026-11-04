@@ -153,3 +153,29 @@ jobs:
         )"
 
         echo "✓ Created PR for $BRANCH"
+
+    # Without this the bump PRs stacked up unmerged: one per release, every
+    # check green, nobody merging them. The required checks gate the merge;
+    # an older bump of the same upstream is superseded by this one, so close it.
+    - name: Auto-merge and close superseded bumps
+      env:
+        VERSION: ${{ github.event.client_payload.version }}
+        EVENT: ${{ github.event.action }}
+        GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      run: |
+        if [ "$EVENT" = "promptarena-release" ]; then
+          UPSTREAM="promptarena"
+        else
+          UPSTREAM="PromptKit"
+        fi
+        BRANCH="deps/$UPSTREAM-$VERSION"
+        PR=$(gh pr view "$BRANCH" --json number --jq .number)
+
+        gh pr list --state open --limit 100 --json number,headRefName \
+          --jq ".[] | select(.headRefName | startswith(\"deps/$UPSTREAM-\")) | select(.headRefName != \"$BRANCH\") | .number" |
+          while read -r OLD; do
+            gh pr close "$OLD" --delete-branch --comment "Superseded by #$PR."
+          done
+
+        gh pr merge "$PR" --auto --squash --delete-branch
+
