@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/AltairaLabs/PromptKit/runtime/v2 v2.18.0
 	github.com/AltairaLabs/PromptKit/sdk/v2 v2.18.0
-	github.com/AltairaLabs/promptarena/v2 v2.4.0
+	github.com/AltairaLabs/promptarena/v2 v2.5.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.2
