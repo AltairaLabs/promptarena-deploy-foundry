@@ -74,6 +74,13 @@ Apply returns state **even when it fails**. An agent created before a later step
 failed is recorded, so the next apply finds it instead of orphaning it in the
 project with nothing pointing at it.
 
+That state starts from the prior state, so it still describes everything the
+failed apply did not reach: the served version, its rollback history and the
+hashes it was deployed from. Because of that the adapter advertises the
+`partial_apply_state` capability, and a PromptArena CLI that supports it saves
+the state, marks the apply incomplete in `deploy status`, and plans the next
+apply against it.
+
 A version that provisioned but never became active is recorded as in-flight and
 not served. The next apply reconciles that version rather than creating a
 duplicate beside it.

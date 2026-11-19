@@ -8,8 +8,8 @@ github.com/AltairaLabs/PromptKit/sdk/v2 v2.21.0 h1:DO2MoKcEKiJqFxbbHoLjBXSqeBGZ/
 github.com/AltairaLabs/PromptKit/sdk/v2 v2.21.0/go.mod h1:GxRh2R5oFrHYnujOdbsfAqqNPDtXC+jp/I2oP78Nnyc=
 github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.21.0 h1:6rFRIKOdHNJ93xgwt0Vnz2pkNqw7ToKnUxm1PaCSp5M=
 github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.21.0/go.mod h1:dKeMDQ0Z39wvWFcPQkYGDcXD3fp8kVHvZIyiwVFFnhg=
-github.com/AltairaLabs/promptarena/v2 v2.7.1-0.20261118172401-4abe93a4a3a2 h1:i/SD8C3Gz1GBzEO+XoFQ9MnMtoY3bQSVS4yRT5B/m7Y=
-github.com/AltairaLabs/promptarena/v2 v2.7.1-0.20261118172401-4abe93a4a3a2/go.mod h1:Z/AkiDoJhDLwgmAWFyVdiyeqahByDxcZHRP4HRgbvpc=
+github.com/AltairaLabs/promptarena/v2 v2.7.1-0.20261119195004-0aefe5967ca0 h1:/xl9cqQwcsgOlHOBCfWMlz1TPUuskkEb1wHWeDL6NBo=
+github.com/AltairaLabs/promptarena/v2 v2.7.1-0.20261119195004-0aefe5967ca0/go.mod h1:Z/AkiDoJhDLwgmAWFyVdiyeqahByDxcZHRP4HRgbvpc=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 h1:qgnWTiWs1G7AqcKZegFvkJD1bmXJcaDU3uC0ELSgZ5U=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3/go.mod h1:XtxD48QPInqoj+GMlcRlXHEYsoOxFnP6w2JgIZ9rDS4=
 github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0 h1:w3gDUJlJ0BfBsHH02DCBDwbkmMSXJqBj6nBOCo9iocY=

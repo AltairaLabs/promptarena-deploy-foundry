@@ -166,6 +166,11 @@ Apply must return the state to persist even when it errors, so resources
 already created are never orphaned and in-flight versions reconcile on the next
 apply.
 
+That state must be built from the prior state, not from what the failed apply
+touched. The adapter advertises `partial_apply_state`, so the CLI saves a failed
+apply's state in place of the stored one; a state missing a prior resource would
+make the CLI forget it exists.
+
 ## Documentation
 
 `docs/` is a Starlight site and the source of truth for the Foundry deploy

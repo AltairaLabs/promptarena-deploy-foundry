@@ -5,9 +5,10 @@ version: 2
 
 builds:
   # Only the adapter is released here. cmd/foundry-runtime ships as a container
-  # image instead, published by .github/workflows/publish-runtime.yml when the
-  # release is published — a loose binary would not help anyone, since Foundry
-  # hosted agents pull an image from Azure Container Registry.
+  # image instead, built by .github/workflows/publish-runtime.yml, which the
+  # release workflow calls once GoReleaser has published the release. A loose
+  # binary would not help anyone, since Foundry hosted agents pull an image
+  # from Azure Container Registry.
   - id: promptarena-deploy-foundry
     binary: promptarena-deploy-foundry
     main: .
