@@ -200,10 +200,13 @@ model provider from Omnia over the channel and ignores `PROMPTPACK_PROVIDERS`.
 
 Two things differ from `foundry-runtime`:
 
-- Conversations arrive through Omnia, over the channel. The container does not
-  serve `/readiness` or the [protocols](#protocols), so calling the Foundry
-  endpoint directly returns `424 session_not_ready`. That call is still what
-  starts a session, and the container runs and dials out regardless.
+- Conversations arrive through Omnia, over the channel. From v0.2.1 the
+  container answers `GET /readiness` on `PORT`, so a session becomes ready, but
+  it serves no protocol here: a call to the Foundry `invocations` endpoint
+  returns `501`, naming Omnia as the way in. That call is still what starts a
+  session, and the container keeps re-dialling the relay while the session
+  lives. Earlier versions serve no `/readiness`, so the same call returns
+  `424 session_not_ready`, though the container still runs and dials out.
 - A pack over `pack_inline_limit_bytes` is staged to Blob storage, and
   omnia-dialhome refuses a staged pack. Keep the pack under the limit, or build
   an image `FROM` omnia-dialhome with the pack copied in and set

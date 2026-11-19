@@ -15,11 +15,16 @@ func hashString(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// hashPack hashes the serialized pack. The CLI hands the pack over as JSON text,
-// so the bytes are hashed as received rather than re-serialized — re-encoding
-// could reorder keys and produce a spurious diff.
+// hashPack hashes the pack's content with the deploy SDK's identity checksum,
+// which drops compilation.created_at and encodes keys in sorted order.
+//
+// The CLI compiles the pack on every plan, stamping a new created_at each
+// time. Hashing the raw bytes, as this used to, made an unchanged pack read
+// as changed, so every apply created an agent version that deployed nothing
+// new. Measured against a live project: a plan straight after an apply
+// reported "pack changed".
 func hashPack(packJSON string) string {
-	return hashString(packJSON)
+	return deploy.PackIdentityChecksum([]byte(packJSON))
 }
 
 // planConfigFingerprint is the subset of config that, when changed, means a new
