@@ -58,7 +58,7 @@ func diagnoseImage(cfg *Config) []string {
 // diagnoseProtocols warns about contracts the bundled runtime does not serve.
 // A replacement image serves whatever it serves, which the adapter cannot know.
 func diagnoseProtocols(cfg *Config) []string {
-	if cfg.RuntimeOverride != nil && cfg.RuntimeOverride.Image != "" {
+	if cfg.replacesRuntime() {
 		return nil
 	}
 	var unserved []string
@@ -93,7 +93,7 @@ func diagnoseObservability(cfg *Config) []string {
 // container, which differs from what an operator used to a long-running
 // service might expect.
 func diagnoseRuntimeOverride(cfg *Config) []string {
-	if !cfg.hasRuntimeOverride() {
+	if !cfg.replacesRuntime() {
 		return nil
 	}
 	return []string{fmt.Sprintf(

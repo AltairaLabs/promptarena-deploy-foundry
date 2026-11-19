@@ -174,11 +174,15 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	members, entry, err := packMembers(req.PackJSON)
+	members, _, err := packMembers(req.PackJSON)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.hasRuntimeOverride() && entry == "" {
+	entry, err := entryAgent(req.PackJSON)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.replacesRuntime() && entry == "" {
 		return nil, fmt.Errorf("runtime_override: the pack names no entry agent (agents.entry), " +
 			"so there is no agent to hand the replacement container as " + envAgentName)
 	}

@@ -56,9 +56,10 @@ before anything is created.
 `runtime_override` runs another container in place of the runtime image. The
 adapter still creates one agent and still sets the pack environment
 (`PROMPTPACK_PACK_JSON` or `PROMPTPACK_PACK_URI`, and the rest of
-[the injected environment](#environment-injected-into-the-container)), and adds
-`PROMPTPACK_AGENT`, naming the pack's entry agent, so the container can find the
-pack and the agent to serve.
+[the injected environment](#environment-injected-into-the-container)). When
+`runtime_override.image` is set it adds `PROMPTPACK_AGENT`, naming the pack's
+entry agent, so the container can find the pack and the agent to serve. An
+override with no image keeps the bundled runtime and only adds environment.
 
 | Field | Type | Description |
 |---|---|---|
@@ -92,9 +93,10 @@ Validation rejects `command` and `args`; a variable name that is not a portable
 environment name, starts with `PROMPTPACK_`, `AGENT_` or `FOUNDRY_`, or is
 `PORT` or `OTEL_EXPORTER_OTLP_ENDPOINT`; a name set in both `env` and
 `secret_env`; and a `secret_env` entry with no name, a malformed name, or a
-`version`. Plan refuses an override when the pack names no entry agent
-(`agents.entry`, or a single prompt), because there is then no agent to hand
-the container.
+`version`. An unknown key inside the block is refused, so a misspelled `image`
+cannot quietly deploy the bundled runtime. Plan refuses an override image when
+the pack has no entry agent (`agents.entry`, or failing that a single prompt),
+because there is then no agent to hand the container.
 
 Changing any of these fields changes the config hash, so the next apply creates
 a new agent version.
@@ -178,8 +180,8 @@ The adapter sets these; the runtime reads them.
 `PROMPTPACK_AGENT` is never set for the bundled runtime. One Foundry agent
 serves the whole pack, and the runtime's precedence — `PROMPTPACK_AGENT`, then
 `agents.entry`, then the sole prompt — already means "serve the pack, entry
-first" in its absence. With a [runtime override](#runtime-override) it is set
-to the entry agent, because a replacement container is promised one.
+first" in its absence. With a [runtime override](#runtime-override) image it is
+set to the entry agent, because a replacement container is promised one.
 
 Foundry injects its own `FOUNDRY_*` and `AGENT_*` variables, plus `PORT`,
 `HOME` and `AZURE`-style identity values. Those prefixes are reserved by the

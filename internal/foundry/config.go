@@ -150,8 +150,15 @@ func parseConfig(raw string) (*Config, error) {
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return nil, fmt.Errorf("invalid config JSON: %w", err)
 	}
+	// The SDK's reader refuses unknown keys inside the block: a misspelled
+	// "image" would otherwise decode to an empty override and deploy the
+	// bundled runtime. It also returns nil for an empty block.
+	override, err := deploy.RuntimeOverrideFromConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RuntimeOverride = override
 	cfg.applyDefaults()
-	cfg.normalizeRuntimeOverride()
 	return &cfg, nil
 }
 

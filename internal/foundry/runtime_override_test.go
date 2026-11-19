@@ -314,3 +314,118 @@ func TestDiagnoseConfigUsesTheOverrideImage(t *testing.T) {
 		t.Errorf("warnings = %v, want no bundled-runtime protocol warning for a replacement image", warnings)
 	}
 }
+
+// A misspelled key inside the block must not decode to an empty override,
+// which would deploy the bundled runtime instead of the one asked for.
+func TestParseConfigRefusesAnUnknownOverrideKey(t *testing.T) {
+	_, err := parseConfig(`{"runtime_override": {"imagee": "x"}}`)
+	if err == nil || !strings.Contains(err.Error(), "imagee") {
+		t.Errorf("parseConfig error = %v, want the unknown key named", err)
+	}
+}
+
+func TestParseConfigRefusesInvalidJSON(t *testing.T) {
+	if _, err := parseConfig(`{`); err == nil {
+		t.Error("parseConfig accepted invalid JSON")
+	}
+}
+
+// Entry resolution matches the bundled runtime's: agents.entry, then the only
+// prompt.
+func TestEntryAgent(t *testing.T) {
+	cases := map[string]struct{ pack, want string }{
+		"entry with members":          {multiAgentPack, "triage"},
+		"sole prompt":                 {singleAgentPack, "main"},
+		"entry without members":       {`{"id":"p","prompts":{"a":{},"b":{}},"agents":{"entry":"b"}}`, "b"},
+		"members, no entry, 1 prompt": {`{"id":"p","prompts":{"a":{}},"agents":{"members":{"a":{}}}}`, "a"},
+		"no entry, two prompts":       {`{"id":"p","prompts":{"a":{},"b":{}}}`, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := entryAgent(tc.pack)
+			if err != nil {
+				t.Fatalf("entryAgent: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("entryAgent = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if _, err := entryAgent("{"); err == nil {
+		t.Error("entryAgent accepted invalid JSON")
+	}
+}
+
+// An env-only override still runs the bundled runtime, which is never pinned
+// and needs no replacement-container advisory.
+func TestEnvOnlyOverrideKeepsTheBundledRuntimeBehaviour(t *testing.T) {
+	o := &deploy.RuntimeOverride{Env: map[string]string{"A": "b"}}
+	spec, errs := buildAgentSpec(overrideSpecInput(o))
+	if len(errs) != 0 {
+		t.Fatalf("buildAgentSpec errors = %v", errs)
+	}
+	if _, ok := spec.Env[envAgentName]; ok {
+		t.Errorf("Env[%s] is set for an env-only override", envAgentName)
+	}
+	if spec.Env["A"] != "b" {
+		t.Errorf("Env[A] = %q, want b", spec.Env["A"])
+	}
+	if w := diagnoseRuntimeOverride(&Config{RuntimeOverride: o}); len(w) != 0 {
+		t.Errorf("warnings = %v, want none for an env-only override", w)
+	}
+}
+
+// goldenConfigHash is hashPlanConfig of goldenHashConfig as computed before
+// runtime_override existed. A deployment that sets no override and no state
+// store must keep it, or every existing deployment plans a spurious version.
+const goldenConfigHash = "4db02c450c539d136dee696db80805418f8bbe8de99ef7f50e93d997b6c598b5"
+
+func goldenHashConfig() (*Config, []ResolvedBinding) {
+	return &Config{
+		Account: "acct", Project: "proj", Image: "acr.azurecr.io/x:1", CPU: "1", Memory: "2Gi",
+		Protocols: []string{ProtocolInvocations}, IdleTimeoutMinutes: 20,
+		Tags: map[string]string{"team": "platform"},
+	}, []ResolvedBinding{{Name: "default", Role: RoleLLM, Type: "openai", Model: "m"}}
+}
+
+func TestHashPlanConfigKeepsTheHashWithoutAnOverride(t *testing.T) {
+	cfg, bindings := goldenHashConfig()
+	got, err := hashPlanConfig(cfg, bindings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != goldenConfigHash {
+		t.Errorf("hash = %s, want %s: existing deployments would all plan a new version", got, goldenConfigHash)
+	}
+}
+
+// The unused top-level image beside an override image deploys nothing, so
+// changing it must not create a version.
+func TestHashPlanConfigUsesTheImageThatRuns(t *testing.T) {
+	cfg, bindings := goldenHashConfig()
+	cfg.RuntimeOverride = &deploy.RuntimeOverride{Image: overrideImage}
+	before, err := hashPlanConfig(cfg, bindings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Image = "acr.azurecr.io/x:2"
+	after, err := hashPlanConfig(cfg, bindings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Error("changing an image the override replaces changed the hash")
+	}
+}
+
+func TestHashPlanConfigTracksTheStateStore(t *testing.T) {
+	cfg, bindings := goldenHashConfig()
+	cfg.StateStore = &StateStore{Kind: StateStoreFile}
+	got, err := hashPlanConfig(cfg, bindings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == goldenConfigHash {
+		t.Error("setting state_store did not change the hash, so its env change would never deploy")
+	}
+}

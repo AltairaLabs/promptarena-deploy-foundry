@@ -54,17 +54,10 @@ func (c *Config) image() string {
 	return c.Image
 }
 
-// hasRuntimeOverride reports whether the config replaces the runtime.
-func (c *Config) hasRuntimeOverride() bool {
-	return c.RuntimeOverride != nil
-}
-
-// normalizeRuntimeOverride makes an empty block no block, so configs that
-// deploy the same thing hash the same.
-func (c *Config) normalizeRuntimeOverride() {
-	if c.RuntimeOverride.IsZero() {
-		c.RuntimeOverride = nil
-	}
+// replacesRuntime reports whether the override swaps in another image. An
+// override that only adds environment still runs the bundled runtime.
+func (c *Config) replacesRuntime() bool {
+	return c.RuntimeOverride != nil && c.RuntimeOverride.Image != ""
 }
 
 // validateRuntimeOverride checks the override against what a hosted agent can
@@ -123,13 +116,14 @@ func secretPlaceholder(ref deploy.SecretRef) string {
 }
 
 // addRuntimeOverrideEnv merges the override's environment into env, and hands
-// the replacement container the agent it serves.
+// a replacement container the agent it serves.
 //
 // The bundled runtime is deliberately not given PROMPTPACK_AGENT (it serves the
-// whole pack, entry first). A replacement container is a different program
-// that the SDK's handoff contract promises an agent name, so it gets the entry.
-// Names were validated with the config (reserved prefixes, no handoff names),
-// so nothing here can displace a variable the adapter set.
+// whole pack, entry first), including under an env-only override. A
+// replacement image is a different program that the SDK's handoff contract
+// promises an agent name, so it gets the entry. Names were validated with the
+// config (reserved prefixes, no handoff names), so nothing here can displace a
+// variable the adapter set.
 func addRuntimeOverrideEnv(env map[string]string, o *deploy.RuntimeOverride, entryAgent string) {
 	if o == nil {
 		return
@@ -140,7 +134,9 @@ func addRuntimeOverrideEnv(env map[string]string, o *deploy.RuntimeOverride, ent
 	for name, ref := range o.SecretEnv {
 		env[name] = secretPlaceholder(ref)
 	}
-	env[envAgentName] = entryAgent
+	if o.Image != "" {
+		env[envAgentName] = entryAgent
+	}
 }
 
 // sortedSecretEnvNames returns the variable names of a secret env map, sorted

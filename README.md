@@ -121,9 +121,10 @@ not the model name.
 `runtime_override` deploys a container of your choosing in place of
 `foundry-runtime`. The adapter still creates one hosted agent and still sets the
 pack environment (`PROMPTPACK_PACK_JSON` or `PROMPTPACK_PACK_URI`, and the rest
-of the [injected environment](docs/src/content/docs/reference/configuration.md#environment-injected-into-the-container)),
-and adds `PROMPTPACK_AGENT` naming the pack's entry agent, so the container can
-read the pack however it was deployed.
+of the [injected environment](docs/src/content/docs/reference/configuration.md#environment-injected-into-the-container)).
+With an override image it adds `PROMPTPACK_AGENT` naming the pack's entry agent
+(`agents.entry`, or the only prompt), so the container can read the pack however
+it was deployed.
 
 | Field | On a hosted agent |
 |---|---|

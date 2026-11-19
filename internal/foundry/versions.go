@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+
+	"github.com/AltairaLabs/promptarena/v2/deploy"
 )
 
 // Environment variable names injected into the runtime container. These must
@@ -16,15 +18,15 @@ import (
 // platform also injects its own coordinates (FOUNDRY_PROJECT_ENDPOINT,
 // FOUNDRY_AGENT_SESSION_ID and friends), so the adapter does not repeat them.
 const (
-	envPackJSON = "PROMPTPACK_PACK_JSON"
-	envPackURI  = "PROMPTPACK_PACK_URI"
+	envPackJSON = deploy.EnvPackJSON
+	envPackURI  = deploy.EnvPackURI
 	// envAgentName pins a single agent. It is never set for the bundled
 	// runtime: one Foundry agent serves the whole pack, and the runtime's
 	// existing precedence — PROMPTPACK_AGENT, then agents.entry, then the sole
 	// prompt — already means "serve the pack, entry first" when it is absent.
-	// A runtime_override container gets the entry agent under it, as the deploy
+	// A runtime_override image gets the entry agent under it, as the deploy
 	// SDK's handoff contract promises (addRuntimeOverrideEnv).
-	envAgentName      = "PROMPTPACK_AGENT"
+	envAgentName      = deploy.EnvAgent
 	envProviders      = "PROMPTPACK_PROVIDERS"
 	envToolSpecs      = "PROMPTPACK_TOOL_SPECS"
 	envTracingEnabled = "PROMPTPACK_TRACING_ENABLED"
@@ -63,7 +65,7 @@ type specInput struct {
 	StagedPackURI string
 	ToolSpecsJSON string
 	// EntryAgent is the pack's entry agent. It is handed to a runtime_override
-	// container as PROMPTPACK_AGENT; the bundled runtime never receives it.
+	// image as PROMPTPACK_AGENT; the bundled runtime never receives it.
 	EntryAgent string
 }
 
