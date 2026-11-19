@@ -300,8 +300,9 @@ func (c *restClient) awaitVersion(
 
 	for version.Status == VersionStatusCreating {
 		if time.Now().After(deadline) {
-			// Not an error the caller can fix by retrying immediately, but the
-			// version is real and recorded, so apply keeps it as in-flight.
+			// Not an error the caller can fix by retrying immediately. The
+			// version is real, so it goes back with the error and apply records
+			// it as in-flight.
 			return version, fmt.Errorf(
 				"agent %q version %q still creating after %s", name, version.Version, c.pollTimeout)
 		}

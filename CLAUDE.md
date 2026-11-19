@@ -163,8 +163,8 @@ can substitute a simulated client without interface mocking. Follow vertex's
 ### Apply returns state on partial failure
 
 Apply must return the state to persist even when it errors, so resources
-already created are never orphaned and in-flight versions reconcile on the next
-apply.
+already created are never orphaned and a version that is not served is recorded
+as in-flight.
 
 That state must be built from the prior state, not from what the failed apply
 touched. The adapter advertises `partial_apply_state`, so the CLI saves a failed

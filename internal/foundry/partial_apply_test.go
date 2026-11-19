@@ -101,3 +101,94 @@ func TestFailedApplyReturnsPriorResourcesAndCreatedOnes(t *testing.T) {
 		})
 	}
 }
+
+const (
+	partialChangedPack   = `{"id": "solo-pack", "prompts": {"main": {"system": "changed"}}}`
+	partialDeployedPrior = `{"version":1,"adapter_version":"old","agent_name":"solo-pack",` +
+		`"served_version":"2","pack_hash":"old-pack","config_hash":"old-config"}`
+)
+
+// A failed apply that changed nothing hands the stored state back verbatim, so
+// the CLI does not record an incomplete apply.
+func TestFailedApplyThatChangedNothingReturnsPriorVerbatim(t *testing.T) {
+	tests := map[string]func(*recordingClient){
+		"version refused": func(c *recordingClient) { c.createVersionErr = errors.New("quota exceeded") },
+		"version failed": func(c *recordingClient) {
+			c.createVersionErr = ErrVersionFailed
+			c.failedVersion = &AgentVersion{Version: "3", Status: VersionStatusFailed}
+		},
+	}
+	for name, fail := range tests {
+		t.Run(name, func(t *testing.T) {
+			client := newRecordingClient()
+			client.seedAgent("solo-pack", "2")
+			fail(client)
+
+			raw, err := applyProvider(t, client).Apply(context.Background(),
+				applyRequest(validConfigJSON, partialChangedPack, partialDeployedPrior), nil)
+			if err == nil {
+				t.Fatal("Apply succeeded, want the injected failure")
+			}
+			if raw != partialDeployedPrior {
+				t.Errorf("state = %s, want the prior state verbatim", raw)
+			}
+		})
+	}
+
+	t.Run("agent refused", func(t *testing.T) {
+		client := newRecordingClient()
+		client.createAgentErr = errors.New("forbidden")
+		raw, err := applyProvider(t, client).Apply(context.Background(),
+			applyRequest(validConfigJSON, singleAgentPack, ""), nil)
+		if err == nil || raw != "" {
+			t.Errorf("Apply = %q, %v; want no state and the error", raw, err)
+		}
+	})
+}
+
+// A version the client gave up waiting for exists and may still go active, so
+// it is recorded as in-flight beside the version still served.
+func TestFailedApplyRecordsAVersionThatDidNotFinish(t *testing.T) {
+	client := newRecordingClient()
+	client.seedAgent("solo-pack", "2")
+	client.createVersionErr = context.DeadlineExceeded
+	client.failedVersion = &AgentVersion{Version: "3", Status: VersionStatusCreating}
+
+	raw, err := applyProvider(t, client).Apply(context.Background(),
+		applyRequest(validConfigJSON, partialChangedPack, partialDeployedPrior), nil)
+	if err == nil {
+		t.Fatal("Apply succeeded, want the timeout")
+	}
+
+	got, _ := parseState(raw)
+	if got.InFlight == nil || got.InFlight.Version != "3" {
+		t.Errorf("InFlight = %+v, want version 3 recorded", got.InFlight)
+	}
+	if got.ServedVersion != "2" || got.PackHash != "old-pack" {
+		t.Errorf("served/hash = %q/%q, want the prior 2/old-pack", got.ServedVersion, got.PackHash)
+	}
+}
+
+// A version created but not served because the endpoint update failed is
+// recorded, so status reports the deployment degraded.
+func TestFailedEndpointUpdateRecordsTheUnservedVersion(t *testing.T) {
+	const prior = `{"version":1,"agent_name":"solo-pack","served_version":"2",` +
+		`"pack_hash":"old-pack","config_hash":"old-config","in_flight":{"version":"99"}}`
+	client := newRecordingClient()
+	client.seedAgent("solo-pack", "2")
+	client.servedVersionErr = errors.New("endpoint refused")
+
+	raw, err := applyProvider(t, client).Apply(context.Background(),
+		applyRequest(validConfigJSON, partialChangedPack, prior), nil)
+	if err == nil {
+		t.Fatal("Apply succeeded, want the endpoint failure")
+	}
+
+	got, _ := parseState(raw)
+	if got.InFlight == nil || got.InFlight.Version == "" || got.InFlight.Version == "99" {
+		t.Errorf("InFlight = %+v, want the version this apply created", got.InFlight)
+	}
+	if got.ServedVersion != "2" {
+		t.Errorf("ServedVersion = %q, want the prior 2", got.ServedVersion)
+	}
+}

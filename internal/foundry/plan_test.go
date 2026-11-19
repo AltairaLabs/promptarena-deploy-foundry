@@ -131,7 +131,7 @@ func TestPlanReconcilesAnInFlightVersion(t *testing.T) {
 		t.Fatalf("version change = %+v, want an update", version)
 	}
 	if !containsSubstring([]string{version.Detail}, "did not finish") {
-		t.Errorf("Detail = %q, want it to explain the reconcile", version.Detail)
+		t.Errorf("Detail = %q, want it to explain the in-flight version", version.Detail)
 	}
 }
 
