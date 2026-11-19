@@ -8,11 +8,13 @@ func TestHashPackDistinguishesDifferentPacks(t *testing.T) {
 	}
 }
 
-// The CLI hands the pack over as JSON text, so the bytes are hashed as
-// received. Re-encoding could reorder keys and produce a spurious diff.
-func TestHashPackHashesBytesAsReceived(t *testing.T) {
-	if hashPack(`{"a":1,"b":2}`) == hashPack(`{"b":2,"a":1}`) {
-		t.Error("hashPack normalized key order, want the raw bytes hashed")
+// Every compile stamps a new created_at; a pack that differs only there, or
+// only in key order, is the same pack and must not create a version.
+func TestHashPackIgnoresCompileTimeAndKeyOrder(t *testing.T) {
+	a := `{"id":"p","compilation":{"created_at":"2026-11-19T19:49:45Z","schema":"v1"},"prompts":{"a":{}}}`
+	b := `{"prompts":{"a":{}},"compilation":{"schema":"v1","created_at":"2026-11-19T20:01:02Z"},"id":"p"}`
+	if hashPack(a) != hashPack(b) {
+		t.Error("hashPack changed with only created_at and key order, so every apply would create a version")
 	}
 }
 
