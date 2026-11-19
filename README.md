@@ -99,7 +99,7 @@ over either.
 |-------|------|----------|-------------|
 | `account` | `string` | Yes | Foundry account; the data plane host is `{account}.services.ai.azure.com` |
 | `project` | `string` | Yes | Foundry project the agent is created in |
-| `image` | `string` | Yes | Azure Container Registry reference to the runtime image (linux/amd64) |
+| `image` | `string` | Yes, unless `runtime_override.image` is set | Azure Container Registry reference to the runtime image (linux/amd64) |
 | `cpu` | enum | No | `0.5` \| `1` \| `2` — pairs with `memory`; immutable per version |
 | `memory` | enum | No | `1Gi` \| `2Gi` \| `4Gi` — must match the `cpu` value's legal pair |
 | `protocols` | list | No | `responses`, `invocations`, `invocations_ws` |
@@ -111,9 +111,102 @@ over either.
 | `observability.tracing_enabled` | `boolean` | No | Emit OTel traces from the deployed agent (off by default) |
 | `observability.otlp_endpoint` | `string` | No | Overrides the endpoint Foundry injects; full URL with scheme |
 | `dry_run` | `boolean` | No | Simulate apply without calling Azure |
+| `runtime_override` | object | No | Run another container in place of the runtime; see [Run another container](#run-another-container) |
 
 For Azure OpenAI, a binding's `model` carries the Azure **deployment name**,
 not the model name.
+
+## Run another container
+
+`runtime_override` deploys a container of your choosing in place of
+`foundry-runtime`. The adapter still creates one hosted agent and still sets the
+pack environment (`PROMPTPACK_PACK_JSON` or `PROMPTPACK_PACK_URI`, and the rest
+of the [injected environment](docs/src/content/docs/reference/configuration.md#environment-injected-into-the-container)),
+and adds `PROMPTPACK_AGENT` naming the pack's entry agent, so the container can
+read the pack however it was deployed.
+
+| Field | On a hosted agent |
+|---|---|
+| `image` | Replaces `image`, which may then be left out. Same rules: an ACR the project can pull from, `linux/amd64` |
+| `env` | Added to the agent's environment, in plain text. A name may not start with `PROMPTPACK_`, `AGENT_` or `FOUNDRY_`, or be `PORT` or `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `secret_env` | Resolved from a Foundry **project connection** when the session's container starts: `name` is `<connection>` or `<connection>/<credential-key>` (the key defaults to `key`). `version` is refused; connections are not versioned |
+| `command`, `args` | Refused. A hosted agent runs the image's own entrypoint and has no way to change it |
+
+A `secret_env` entry becomes the platform placeholder
+`${{connections.<connection>.credentials.<key>}}`, so only the reference is
+stored in the agent definition. Create the connection first: a placeholder that
+does not resolve leaves the variable empty rather than failing the deploy.
+
+The platform starts the container only when a session is created, routes the
+declared `protocols` to it on the injected `PORT`, and waits for `GET
+/readiness` to answer `200` before passing it a call. A container that does not
+serve `/readiness` still runs, but a call to it returns `424 session_not_ready`.
+Its output is readable per session through the
+[`:logstream` route](docs/src/content/docs/how-to/invoke.md#troubleshooting).
+
+Changing any of these fields changes the plan's config hash, so the next apply
+creates a new agent version.
+
+### Run omnia-dialhome
+
+[omnia-dialhome](https://github.com/AltairaLabs/omnia-dialhome) runs a pack as
+the runtime of an agent in an Omnia workspace: the container opens one outbound
+connection to the agent's relay and serves its conversations over it, with
+policy, sessions, evals and memory staying in Omnia. It reads the pack and the
+agent from the adapter's `PROMPTPACK_PACK_JSON` and `PROMPTPACK_AGENT`.
+
+1. Copy the image into your ACR. The project's identity already needs
+   `AcrPull` there for the [runtime image](#components):
+
+   ```bash
+   az acr import --name myacr \
+     --source ghcr.io/altairalabs/omnia-dialhome:<version> \
+     --image altairalabs/omnia-dialhome:<version>
+   ```
+
+2. Put the agent's dial-home URL and key in a `CustomKeys` connection on the
+   project. Omnia issues them together, in the agent's
+   `<agent>-dial-home-key` Secret (keys `url` and `key`):
+
+   ```bash
+   az rest --method PUT \
+     --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>/connections/my-agent-dial-home?api-version=2025-06-01" \
+     --body '{"properties":{"category":"CustomKeys","authType":"CustomKeys","target":"_",
+       "credentials":{"keys":{"url":"<url>","key":"<key>"}}}}'
+   ```
+
+3. Deploy with the override:
+
+   ```yaml
+   deploy:
+     provider: foundry
+     config:
+       account: my-foundry-account
+       project: my-project
+       cpu: "0.5"
+       memory: "1Gi"
+       providers:
+         - { name: default, role: llm, type: openai, model: gpt-4-1-mini }
+       runtime_override:
+         image: myacr.azurecr.io/altairalabs/omnia-dialhome:<version>
+         secret_env:
+           OMNIA_DIAL_HOME_URL: { name: my-agent-dial-home/url }
+           OMNIA_DIAL_HOME_KEY: { name: my-agent-dial-home/key }
+   ```
+
+`providers` is still required by the adapter, but omnia-dialhome takes its
+model provider from Omnia over the channel and ignores `PROMPTPACK_PROVIDERS`.
+
+Two things differ from `foundry-runtime`:
+
+- Conversations arrive through Omnia, over the channel. The container does not
+  serve `/readiness` or the [protocols](#protocols), so calling the Foundry
+  endpoint directly returns `424 session_not_ready`. That call is still what
+  starts a session, and the container runs and dials out regardless.
+- A pack over `pack_inline_limit_bytes` is staged to Blob storage, and
+  omnia-dialhome refuses a staged pack. Keep the pack under the limit, or build
+  an image `FROM` omnia-dialhome with the pack copied in and set
+  `OMNIA_DIALHOME_PACK` in `env`.
 
 ## Protocols
 

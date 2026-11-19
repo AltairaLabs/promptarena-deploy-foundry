@@ -74,6 +74,7 @@ func (p *Provider) Apply(
 		Delivery:      in.Delivery,
 		StagedPackURI: stagedPackURI,
 		ToolSpecsJSON: in.ToolSpecsJSON,
+		EntryAgent:    in.EntryAgent,
 	})
 	if len(specErrs) != 0 {
 		return "", fmt.Errorf("build agent spec: %s", joinErrors(specErrs))

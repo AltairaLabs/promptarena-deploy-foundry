@@ -82,8 +82,13 @@ These are not preferences — the platform enforces them:
   only through those protocol libraries (`AgentHost`, `RegisterProtocol`,
   `InvocationAgentServerHost`); no raw HTTP contract is published. A hand-rolled
   Go container that serves `/readiness` and `/invocations` correctly in isolation
-  still never becomes ready in the sandbox, and container startup logs are not
-  exposed through any API, so the missing piece cannot be observed directly.
+  still never becomes ready in the sandbox. Container output is readable per
+  session through `…/versions/{v}/sessions/{id}:logstream` (SSE, `stdout`,
+  `stderr` and `status` frames); measured with a runtime_override container,
+  whose dial-out errors appeared there within a second of the session starting.
+- **The version selection rule is `{type, agent_version, traffic_percentage}`.**
+  Measured against a live project: a rule carrying `version` instead of
+  `agent_version` is refused with HTTP 400.
 - **Inference goes through the project endpoint, never the account endpoint.**
   Foundry grants an agent implicit model access through its own project, so a
   deploy needs no RBAC step at all. Calling `{account}.openai.azure.com`

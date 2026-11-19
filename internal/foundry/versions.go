@@ -18,10 +18,12 @@ import (
 const (
 	envPackJSON = "PROMPTPACK_PACK_JSON"
 	envPackURI  = "PROMPTPACK_PACK_URI"
-	// envAgentName pins a single agent. It is deliberately never set here: one
-	// Foundry agent serves the whole pack, and the runtime's existing
-	// precedence — PROMPTPACK_AGENT, then agents.entry, then the sole prompt —
-	// already means "serve the pack, entry first" when it is absent.
+	// envAgentName pins a single agent. It is never set for the bundled
+	// runtime: one Foundry agent serves the whole pack, and the runtime's
+	// existing precedence — PROMPTPACK_AGENT, then agents.entry, then the sole
+	// prompt — already means "serve the pack, entry first" when it is absent.
+	// A runtime_override container gets the entry agent under it, as the deploy
+	// SDK's handoff contract promises (addRuntimeOverrideEnv).
 	envAgentName      = "PROMPTPACK_AGENT"
 	envProviders      = "PROMPTPACK_PROVIDERS"
 	envToolSpecs      = "PROMPTPACK_TOOL_SPECS"
@@ -60,6 +62,9 @@ type specInput struct {
 	Delivery      PackDelivery
 	StagedPackURI string
 	ToolSpecsJSON string
+	// EntryAgent is the pack's entry agent. It is handed to a runtime_override
+	// container as PROMPTPACK_AGENT; the bundled runtime never receives it.
+	EntryAgent string
 }
 
 // buildAgentSpec turns the deployment inputs into the desired spec for the
@@ -72,7 +77,7 @@ func buildAgentSpec(in *specInput) (spec *AgentSpec, errors []string) {
 
 	return &AgentSpec{
 		Name:               in.AgentName,
-		Image:              in.Cfg.Image,
+		Image:              in.Cfg.image(),
 		CPU:                in.Cfg.CPU,
 		Memory:             in.Cfg.Memory,
 		Protocols:          in.Cfg.Protocols,
@@ -110,6 +115,8 @@ func buildAgentEnv(in *specInput) (vars map[string]string, errors []string) {
 			env[envOTLPEndpoint] = in.Cfg.Observability.OTLPEndpoint
 		}
 	}
+
+	addRuntimeOverrideEnv(env, in.Cfg.RuntimeOverride, in.EntryAgent)
 
 	if in.Delivery.Inline {
 		env[envPackJSON] = in.PackJSON

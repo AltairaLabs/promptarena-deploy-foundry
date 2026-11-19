@@ -1,14 +1,46 @@
 package foundry
 
+import (
+	"encoding/json"
+
+	"github.com/AltairaLabs/promptarena/v2/deploy"
+	"github.com/AltairaLabs/promptarena/v2/deploy/adaptersdk"
+)
+
 // configSchema is the JSON Schema (draft-07) for the foundry provider config.
+// The runtime_override block comes from the deploy SDK, so it reads the same
+// in every adapter's schema.
+var configSchema = withRuntimeOverride(baseConfigSchema)
+
+// withRuntimeOverride adds the SDK's runtime_override schema to a config
+// schema. The input is a constant of this package, so a failure is a
+// programming error and panics at start-up, where a test sees it.
+func withRuntimeOverride(schema string) string {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(schema), &doc); err != nil {
+		panic("foundry: config schema is not JSON: " + err.Error())
+	}
+	props, ok := doc["properties"].(map[string]any)
+	if !ok {
+		panic("foundry: config schema has no properties")
+	}
+	props[deploy.RuntimeOverrideConfigKey] = adaptersdk.RuntimeOverrideSchema()
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		panic("foundry: config schema: " + err.Error())
+	}
+	return string(out)
+}
+
+// baseConfigSchema is the adapter's own part of the schema.
 //
 // cpu and memory are enums rather than free strings: Foundry offers exactly
 // three immutable cpu/memory pairs, and a typo in a free string would only
 // surface after the agent version had already been created.
-const configSchema = `{
+const baseConfigSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["account", "project", "image", "providers"],
+  "required": ["account", "project", "providers"],
   "properties": {
     "account": {
       "type": "string",
@@ -20,7 +52,7 @@ const configSchema = `{
     },
     "image": {
       "type": "string",
-      "description": "Azure Container Registry reference to the runtime image (linux/amd64)"
+      "description": "ACR reference to the runtime image (linux/amd64); required unless runtime_override.image is set"
     },
     "cpu": {
       "type": "string",

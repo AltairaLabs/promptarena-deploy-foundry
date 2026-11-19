@@ -57,7 +57,7 @@ func TestRESTGetAgent(t *testing.T) {
 			"agent_endpoint": map[string]any{
 				"version_selector": map[string]any{
 					"version_selection_rules": []any{
-						map[string]any{"version": "3", "traffic_percentage": 100},
+						map[string]any{"agent_version": "3", "traffic_percentage": 100, "type": "FixedRatio"},
 					},
 				},
 			},
@@ -305,15 +305,15 @@ func TestRESTSetEndpointSendsMergePatch(t *testing.T) {
 		t.Fatalf("version_selection_rules = %v, want exactly one", rules)
 	}
 	rule, _ := rules[0].(map[string]any)
-	if rule["version"] != "7" {
-		t.Errorf("rule version = %v, want 7", rule["version"])
+	if rule["agent_version"] != "7" {
+		t.Errorf("rule agent_version = %v, want 7", rule["agent_version"])
 	}
 	// Traffic splitting is not supported; the single rule must be 100%.
 	if pct, _ := rule["traffic_percentage"].(float64); pct != 100 {
 		t.Errorf("traffic_percentage = %v, want 100", rule["traffic_percentage"])
 	}
-	if rule["kind"] != fixedRatioRuleKind {
-		t.Errorf("rule kind = %v, want %q", rule["kind"], fixedRatioRuleKind)
+	if rule["type"] != fixedRatioRuleKind {
+		t.Errorf("rule type = %v, want %q", rule["type"], fixedRatioRuleKind)
 	}
 }
 
@@ -549,5 +549,19 @@ func TestRESTDeleteAgentCascadesSessions(t *testing.T) {
 	// malformed in a way the server reports as something else entirely.
 	if !strings.Contains(gotQuery, "api-version="+apiVersion) {
 		t.Errorf("query = %q, want api-version preserved alongside force", gotQuery)
+	}
+}
+
+// An agent whose selector was written under the earlier rule shape still
+// reports the version it serves.
+func TestToAgentReadsALegacyVersionRule(t *testing.T) {
+	agent := toAgent(&agentWire{
+		Name: "a",
+		AgentEndpoint: &agentEndpointWire{VersionSelector: &versionSelectorWire{
+			Rules: []versionRuleWire{{Version: "2", TrafficPercentage: fullTrafficPercentage}},
+		}},
+	})
+	if agent.ServedVersion != "2" {
+		t.Errorf("ServedVersion = %q, want 2", agent.ServedVersion)
 	}
 }
