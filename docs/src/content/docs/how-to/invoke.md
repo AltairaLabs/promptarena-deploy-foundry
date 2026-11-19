@@ -174,9 +174,19 @@ version, so nothing needs re-granting on redeploy either.
 | `424 session_not_ready` | The container never answered `/readiness`. |
 | `500`, `send (endpoint=… deployment=…)` | The turn reached the model and failed; the message names the resolved binding. |
 
-A `session_not_ready` is the hardest of these, because container startup logs
-are **not exposed through any API** — only lifecycle states. Two causes worth
-checking first, both found by measurement:
+For a `session_not_ready`, read the session's container output. The failing
+call's response carries the session in its `x-agent-session-id` header and the
+version in `x-agent-version-resolved`; the platform streams that session's
+stdout and stderr as server-sent events:
+
+```bash
+TOKEN=$(az account get-access-token --scope "https://ai.azure.com/.default" \
+  --query accessToken -o tsv)
+curl -sS -N -H "Authorization: Bearer ${TOKEN}" -H "Accept: text/event-stream" \
+  "https://${ACCOUNT}.services.ai.azure.com/api/projects/${PROJECT}/agents/${AGENT}/versions/${VERSION}/sessions/${SESSION}:logstream?api-version=v1"
+```
+
+Two causes worth checking first, both found by measurement:
 
 - **The base image.** A distroless image never becomes ready; the identical
   binary on `debian-slim` answers in about two seconds.

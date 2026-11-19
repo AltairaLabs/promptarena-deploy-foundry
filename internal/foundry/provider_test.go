@@ -34,7 +34,10 @@ func TestGetProviderInfo(t *testing.T) {
 	}
 
 	// Capabilities must reflect what actually works end to end.
-	want := map[string]bool{"validate": true, "plan": true, "apply": true, "destroy": true, "status": true}
+	want := map[string]bool{
+		"validate": true, "plan": true, "apply": true, "destroy": true, "status": true,
+		deploy.RuntimeOverrideCapability: true,
+	}
 	for _, c := range info.Capabilities {
 		if !want[c] {
 			t.Errorf("Capabilities includes %q, which is not implemented", c)

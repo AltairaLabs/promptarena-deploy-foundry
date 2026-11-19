@@ -127,9 +127,16 @@ type (
 		Rules []versionRuleWire `json:"version_selection_rules,omitempty"`
 	}
 
+	// versionRuleWire is one version selection rule. Verified against a live
+	// project: the API names the version agent_version and the rule kind type,
+	// and refuses a rule without agent_version ("Fixed-ratio version selection
+	// rules must each specify a non-empty 'agent_version'"). Version is read
+	// as well so an agent written under the earlier shape still reports its
+	// served version.
 	versionRuleWire struct {
-		Kind              string `json:"kind,omitempty"`
-		Version           string `json:"version"`
+		Type              string `json:"type,omitempty"`
+		AgentVersion      string `json:"agent_version,omitempty"`
+		Version           string `json:"version,omitempty"`
 		TrafficPercentage int    `json:"traffic_percentage"`
 	}
 
@@ -378,8 +385,8 @@ func (c *restClient) SetEndpoint(
 		AgentEndpoint: &agentEndpointWire{
 			VersionSelector: &versionSelectorWire{
 				Rules: []versionRuleWire{{
-					Kind:              fixedRatioRuleKind,
-					Version:           version,
+					Type:              fixedRatioRuleKind,
+					AgentVersion:      version,
 					TrafficPercentage: fullTrafficPercentage,
 				}},
 			},
@@ -531,7 +538,10 @@ func toAgent(w *agentWire) *Agent {
 	// Traffic splitting is unsupported, so the first rule is the served one.
 	rules := w.AgentEndpoint.VersionSelector.Rules
 	if len(rules) > 0 {
-		agent.ServedVersion = rules[0].Version
+		agent.ServedVersion = rules[0].AgentVersion
+		if agent.ServedVersion == "" {
+			agent.ServedVersion = rules[0].Version
+		}
 	}
 	return agent
 }

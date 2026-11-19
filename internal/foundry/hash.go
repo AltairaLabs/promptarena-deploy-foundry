@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	"github.com/AltairaLabs/promptarena/v2/deploy"
 )
 
 // hashString returns the hex-encoded SHA-256 of s.
@@ -42,6 +44,13 @@ type planConfigFingerprint struct {
 	Bindings           []ResolvedBinding `json:"bindings"`
 	Observability      *Observability    `json:"observability"`
 	ToolSpecs          string            `json:"tool_specs"`
+
+	// Added after the fields above, and omitted when unset, so a deployment
+	// that sets neither keeps the hash it already has. StateStore was deployed
+	// (PROMPTPACK_STATE_STORE*) but never hashed, so a deployment that sets it
+	// plans one corrective version after the upgrade.
+	RuntimeOverride *deploy.RuntimeOverride `json:"runtime_override,omitempty"`
+	StateStore      *StateStore             `json:"state_store,omitempty"`
 }
 
 // hashPlanConfig hashes the deploy-affecting parts of the config, the resolved
@@ -51,9 +60,11 @@ type planConfigFingerprint struct {
 // running with the plan reporting no change.
 func hashPlanConfig(cfg *Config, resolved []ResolvedBinding, toolSpecs string) (string, error) {
 	fingerprint := planConfigFingerprint{
-		Account:            cfg.Account,
-		Project:            cfg.Project,
-		Image:              cfg.Image,
+		Account: cfg.Account,
+		Project: cfg.Project,
+		// The image that runs: an unused top-level image beside an override
+		// image deploys nothing new when it changes.
+		Image:              cfg.image(),
 		CPU:                cfg.CPU,
 		Memory:             cfg.Memory,
 		Protocols:          cfg.Protocols,
@@ -62,6 +73,8 @@ func hashPlanConfig(cfg *Config, resolved []ResolvedBinding, toolSpecs string) (
 		Bindings:           resolved,
 		Observability:      cfg.Observability,
 		ToolSpecs:          toolSpecs,
+		RuntimeOverride:    cfg.RuntimeOverride,
+		StateStore:         cfg.StateStore,
 	}
 
 	encoded, err := json.Marshal(fingerprint)

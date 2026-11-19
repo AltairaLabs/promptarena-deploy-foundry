@@ -109,6 +109,25 @@ func memberNames(pack *packView) (names []string, entry string) {
 	return names, ""
 }
 
+// entryAgent returns the agent a replacement runtime is handed, resolved the
+// way the bundled runtime resolves it (cmd/foundry-runtime resolveAgentName):
+// agents.entry, then the pack's only prompt. Empty means neither applies.
+func entryAgent(packJSON string) (string, error) {
+	pack, err := decodePack(packJSON)
+	if err != nil {
+		return "", err
+	}
+	if pack.Agents != nil && pack.Agents.Entry != "" {
+		return pack.Agents.Entry, nil
+	}
+	if len(pack.Prompts) == 1 {
+		for name := range pack.Prompts {
+			return name, nil
+		}
+	}
+	return "", nil
+}
+
 // hasA2ATools reports whether the pack declares agent-to-agent tools.
 //
 // These are remote calls — PromptKit's A2A bridge discovers an agent card over

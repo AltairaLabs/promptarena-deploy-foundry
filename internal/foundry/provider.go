@@ -79,7 +79,7 @@ func (p *Provider) GetProviderInfo(_ context.Context) (*deploy.ProviderInfo, err
 	return &deploy.ProviderInfo{
 		Name:         ProviderName,
 		Version:      Version,
-		Capabilities: []string{"validate", "plan", "apply", "destroy", "status"},
+		Capabilities: []string{"validate", "plan", "apply", "destroy", "status", deploy.RuntimeOverrideCapability},
 		ConfigSchema: configSchema,
 	}, nil
 }
@@ -125,6 +125,7 @@ type planContext struct {
 	Bindings      []ResolvedBinding
 	ToolSpecsJSON string
 	Delivery      PackDelivery
+	EntryAgent    string
 }
 
 // gatherPlanInput validates the request and derives everything buildPlan needs
@@ -177,6 +178,14 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	entry, err := entryAgent(req.PackJSON)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.replacesRuntime() && entry == "" {
+		return nil, fmt.Errorf("runtime_override: the pack names no entry agent (agents.entry), " +
+			"so there is no agent to hand the replacement container as " + envAgentName)
+	}
 
 	return &planContext{
 		Cfg:           cfg,
@@ -189,6 +198,7 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 		Bindings:      resolved,
 		ToolSpecsJSON: toolSpecs,
 		Delivery:      delivery,
+		EntryAgent:    entry,
 	}, nil
 }
 

@@ -12,7 +12,7 @@ config before the adapter is ever invoked.
 |---|---|---|---|
 | `account` | string | Yes | Foundry account name. The data plane host is `{account}.services.ai.azure.com`. |
 | `project` | string | Yes | Foundry project the agent is created in. |
-| `image` | string | Yes | Azure Container Registry reference to the runtime image. Must be `linux/amd64`. |
+| `image` | string | Yes, unless `runtime_override.image` is set | Azure Container Registry reference to the runtime image. Must be `linux/amd64`. |
 | `cpu` | enum | Yes | `"0.5"` \| `"1"` \| `"2"`. Pairs with `memory`; immutable per version. |
 | `memory` | enum | Yes | `"1Gi"` \| `"2Gi"` \| `"4Gi"`. Must match the `cpu` value's legal pair. |
 | `protocols` | list | No | `invocations`, `invocations_ws`, `responses`. Defaults to `[invocations]`. |
@@ -28,6 +28,7 @@ config before the adapter is ever invoked.
 | `state_store.url_from_env` | string | No | Environment variable holding the redis connection string. Required for `redis`. |
 | `tags` | map | No | Applied as agent metadata. |
 | `dry_run` | boolean | No | Simulate apply without calling Azure. |
+| `runtime_override` | object | No | Run another container in place of the runtime. See [Runtime override](#runtime-override). |
 
 ## Staging large packs
 
@@ -49,6 +50,68 @@ then fails on the upload.
 
 A pack over the limit with no `staging_container` set is refused at plan time,
 before anything is created.
+
+## Runtime override
+
+`runtime_override` runs another container in place of the runtime image. The
+adapter still creates one agent and still sets the pack environment
+(`PROMPTPACK_PACK_JSON` or `PROMPTPACK_PACK_URI`, and the rest of
+[the injected environment](#environment-injected-into-the-container)). When
+`runtime_override.image` is set it adds `PROMPTPACK_AGENT`, naming the pack's
+entry agent, so the container can find the pack and the agent to serve. An
+override with no image keeps the bundled runtime and only adds environment.
+
+| Field | Type | Description |
+|---|---|---|
+| `runtime_override.image` | string | Image to run instead of `image`. Same rules: an Azure Container Registry the project can pull from, `linux/amd64`. |
+| `runtime_override.env` | map of string | Added to the agent's environment. Values are stored in the agent definition in plain text. |
+| `runtime_override.secret_env` | map of `{name}` | Variables resolved from a Foundry **project connection** when a session's container starts. Only a placeholder is stored in the definition. |
+| `runtime_override.command` | list | Refused: a hosted agent runs the image's own entrypoint. |
+| `runtime_override.args` | list | Refused, for the same reason. |
+
+A `secret_env` `name` is `<connection>` or `<connection>/<credential-key>`. It
+becomes the platform placeholder
+`${{connections.<connection>.credentials.<credential-key>}}`, with the key
+defaulting to `key`, which is where an `ApiKey` connection keeps its secret. A
+`CustomKeys` connection uses the key names it was created with. `version` is
+refused: connections are not versioned, and the current value is read every
+time a session starts.
+
+```yaml
+runtime_override:
+  image: myacr.azurecr.io/acme/other-runtime:1.0.0
+  env:
+    RELAY_URL: wss://relay.example.com/v1/channel
+  secret_env:
+    RELAY_KEY: { name: relay-secrets/relay_key }
+```
+
+Create the connection before deploying. A placeholder that does not resolve
+leaves the variable **empty** at start-up rather than failing the deploy.
+
+Validation rejects `command` and `args`; a variable name that is not a portable
+environment name, starts with `PROMPTPACK_`, `AGENT_` or `FOUNDRY_`, or is
+`PORT` or `OTEL_EXPORTER_OTLP_ENDPOINT`; a name set in both `env` and
+`secret_env`; and a `secret_env` entry with no name, a malformed name, or a
+`version`. An unknown key inside the block is refused, so a misspelled `image`
+cannot quietly deploy the bundled runtime. Plan refuses an override image when
+the pack has no entry agent (`agents.entry`, or failing that a single prompt),
+because there is then no agent to hand the container.
+
+Changing any of these fields changes the config hash, so the next apply creates
+a new agent version.
+
+What the platform does with a replacement container:
+
+- It is started **only when a session is created**, and is sent the declared
+  `protocols` on the injected `PORT`. A version reports `active` once its image
+  pulls, whatever the container does.
+- The platform waits for `GET /readiness` to answer `200` before routing a
+  call. A container that does not serve it still runs, but every call to it
+  returns `424 session_not_ready`. A container whose work arrives some other
+  way, such as over an outbound connection it opens itself, can live with that.
+- Its output is readable per session through the `:logstream` route; see
+  [Invoke a deployed agent](/how-to/invoke/#troubleshooting).
 
 ## Provider bindings
 
@@ -84,17 +147,21 @@ A binding must name **exactly one** source. Setting both `arena_provider` and
 Structural problems are errors; advisories are warnings and do not make a
 config invalid. All problems are reported together rather than one per run.
 
-Errors include a missing `account`, `project` or `image`; missing or
+Errors include a missing `account` or `project`, no `image` and no
+`runtime_override.image`; missing or
 half-specified `cpu`/`memory`; a cpu/memory pair that is not one of the three
 legal combinations; an unknown protocol; an
 `idle_timeout_minutes` outside 5–60; a `staging_container` that is not an
 absolute `https://` URL; an `otlp_endpoint` without a scheme; a duplicated or
-sourceless binding; and a tag name containing `<>%&\?/` or over the length
-limits.
+sourceless binding; a tag name containing `<>%&\?/` or over the length
+limits; and any of the `runtime_override` refusals above.
 
 Warnings include an image outside an Azure Container Registry, a protocol the
 bundled runtime does not serve, an `otlp_endpoint` that merely overrides what
-the platform injects, and no binding named `default`.
+the platform injects, no binding named `default`, and, for a runtime override,
+what the platform does with a replacement container. The protocol warning is
+skipped when `runtime_override.image` is set, since what a replacement serves
+is its own business.
 
 ## Environment injected into the container
 
@@ -110,10 +177,11 @@ The adapter sets these; the runtime reads them.
 | `PROMPTPACK_TRACING_ENABLED` | `true` when tracing is on. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Only when overriding the platform's own. |
 
-`PROMPTPACK_AGENT` is deliberately never set. One Foundry agent serves the whole
-pack, and the runtime's precedence — `PROMPTPACK_AGENT`, then `agents.entry`,
-then the sole prompt — already means "serve the pack, entry first" in its
-absence.
+`PROMPTPACK_AGENT` is never set for the bundled runtime. One Foundry agent
+serves the whole pack, and the runtime's precedence — `PROMPTPACK_AGENT`, then
+`agents.entry`, then the sole prompt — already means "serve the pack, entry
+first" in its absence. With a [runtime override](#runtime-override) image it is
+set to the entry agent, because a replacement container is promised one.
 
 Foundry injects its own `FOUNDRY_*` and `AGENT_*` variables, plus `PORT`,
 `HOME` and `AZURE`-style identity values. Those prefixes are reserved by the

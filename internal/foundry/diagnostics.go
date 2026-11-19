@@ -24,6 +24,7 @@ func diagnoseConfig(cfg *Config) []string {
 	warnings = append(warnings, diagnoseImage(cfg)...)
 
 	warnings = append(warnings, diagnoseProtocols(cfg)...)
+	warnings = append(warnings, diagnoseRuntimeOverride(cfg)...)
 	warnings = append(warnings, diagnoseObservability(cfg)...)
 
 	return warnings
@@ -31,13 +32,14 @@ func diagnoseConfig(cfg *Config) []string {
 
 // diagnoseImage checks the image is somewhere Foundry can actually pull from.
 func diagnoseImage(cfg *Config) []string {
-	if cfg.Image == "" {
+	image := cfg.image()
+	if image == "" {
 		return nil
 	}
 
-	registry, _, found := strings.Cut(cfg.Image, "/")
+	registry, _, found := strings.Cut(image, "/")
 	if !found {
-		registry = cfg.Image
+		registry = image
 	}
 	// Strip any port before matching the host suffix.
 	if host, _, hasPort := strings.Cut(registry, ":"); hasPort {
@@ -48,13 +50,17 @@ func diagnoseImage(cfg *Config) []string {
 		return []string{fmt.Sprintf(
 			"image %q is not in an Azure Container Registry; Foundry pulls only from ACR, so "+
 				"mirror the image into your own registry and reference that instead",
-			cfg.Image)}
+			image)}
 	}
 	return nil
 }
 
 // diagnoseProtocols warns about contracts the bundled runtime does not serve.
+// A replacement image serves whatever it serves, which the adapter cannot know.
 func diagnoseProtocols(cfg *Config) []string {
+	if cfg.replacesRuntime() {
+		return nil
+	}
 	var unserved []string
 	for _, p := range cfg.Protocols {
 		if !slices.Contains(runtimeServedProtocols, p) {
@@ -81,4 +87,18 @@ func diagnoseObservability(cfg *Config) []string {
 		"observability.otlp_endpoint overrides the OTEL_EXPORTER_OTLP_ENDPOINT that Foundry " +
 			"injects; leave it unset to use the platform's own collector",
 	}
+}
+
+// diagnoseRuntimeOverride says what the platform does with a replacement
+// container, which differs from what an operator used to a long-running
+// service might expect.
+func diagnoseRuntimeOverride(cfg *Config) []string {
+	if !cfg.replacesRuntime() {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"runtime_override: Foundry starts the container only when a session is created, routes the "+
+			"declared protocols (%s) to it on the injected PORT, and reports the version active once "+
+			"the image pulls, whether or not the container serves anything",
+		strings.Join(cfg.Protocols, ", "))}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/AltairaLabs/promptarena/v2/deploy"
 )
 
 // Protocol contract names a hosted agent can declare.
@@ -94,6 +96,13 @@ type Config struct {
 	Providers     []ProviderBinding `json:"providers,omitempty"`
 	Observability *Observability    `json:"observability,omitempty"`
 	StateStore    *StateStore       `json:"state_store,omitempty"`
+
+	// RuntimeOverride runs another container in place of the runtime image,
+	// with extra plain and connection-sourced environment. The agent still
+	// receives the pack environment it always does, plus PROMPTPACK_AGENT.
+	// A hosted agent takes an image and no command, so command and args are
+	// refused.
+	RuntimeOverride *deploy.RuntimeOverride `json:"runtime_override,omitempty"`
 }
 
 // State store kinds a deployed agent can use for conversation history.
@@ -141,6 +150,14 @@ func parseConfig(raw string) (*Config, error) {
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return nil, fmt.Errorf("invalid config JSON: %w", err)
 	}
+	// The SDK's reader refuses unknown keys inside the block: a misspelled
+	// "image" would otherwise decode to an empty override and deploy the
+	// bundled runtime. It also returns nil for an empty block.
+	override, err := deploy.RuntimeOverrideFromConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RuntimeOverride = override
 	cfg.applyDefaults()
 	return &cfg, nil
 }
@@ -170,9 +187,10 @@ func (c *Config) validateStructure() []string {
 	if c.Project == "" {
 		errs = append(errs, "project is required")
 	}
-	if c.Image == "" {
+	if c.image() == "" {
 		errs = append(errs,
-			"image is required: an Azure Container Registry reference to the linux/amd64 runtime image")
+			"image is required: an Azure Container Registry reference to the linux/amd64 runtime image, "+
+				"or runtime_override.image")
 	}
 
 	errs = append(errs, c.validateResources()...)
@@ -181,6 +199,7 @@ func (c *Config) validateStructure() []string {
 	errs = append(errs, c.validateStateStore()...)
 	errs = append(errs, c.validateStagingContainer()...)
 	errs = append(errs, c.validateObservability()...)
+	errs = append(errs, c.validateRuntimeOverride()...)
 
 	return errs
 }
