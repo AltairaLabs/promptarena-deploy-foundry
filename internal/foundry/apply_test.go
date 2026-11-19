@@ -18,6 +18,9 @@ type recordingClient struct {
 
 	createAgentErr   error
 	createVersionErr error
+	// failedVersion is returned alongside createVersionErr, the way the real
+	// client returns a version it gave up waiting for.
+	failedVersion *AgentVersion
 	servedVersionErr error
 	deleteErr        error
 
@@ -56,7 +59,7 @@ func (c *recordingClient) CreateVersion(
 ) (*AgentVersion, error) {
 	c.calls = append(c.calls, "CreateVersion")
 	if c.createVersionErr != nil {
-		return nil, c.createVersionErr
+		return c.failedVersion, c.createVersionErr
 	}
 	v, err := c.dryRunClient.CreateVersion(ctx, name, spec)
 	if err == nil && c.versionStatus != "" {
@@ -242,7 +245,7 @@ func TestApplyReturnsStateAfterVersionFailure(t *testing.T) {
 }
 
 // A version that provisions but never becomes active must be recorded as
-// in-flight so the next apply reconciles it instead of creating a duplicate.
+// in-flight so it is not forgotten.
 func TestApplyRecordsAnInFlightVersion(t *testing.T) {
 	client := newRecordingClient()
 	client.versionStatus = VersionStatusCreating

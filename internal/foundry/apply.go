@@ -96,6 +96,12 @@ func (p *Provider) Apply(
 		Grant:           p.modelGranter(ctx),
 	}, in.Prior, report)
 
+	if applyErr != nil && next == in.Prior {
+		// Nothing changed. The stored state goes back verbatim, so the CLI
+		// does not record an incomplete apply that did nothing.
+		return req.PriorState, applyErr
+	}
+
 	state, marshalErr := next.Marshal()
 	if marshalErr != nil {
 		return "", marshalErr
@@ -105,6 +111,13 @@ func (p *Provider) Apply(
 
 // applyAgent performs the create/version/serve sequence, returning the state to
 // persist regardless of where it stopped.
+//
+// The adapter advertises partial_apply_state, so the CLI saves the state a
+// failed apply returns in place of the stored one. It therefore starts from the
+// prior state and only ever adds to it: the agent, served version, history,
+// hashes and any in-flight record it does not get past are kept as they were.
+// A failure that changed nothing returns prior itself, so Apply can hand back
+// the stored state untouched.
 func applyAgent(
 	ctx context.Context, client foundryClient, in *applyInput,
 	prior *State, report *adaptersdk.ProgressReporter,
@@ -115,7 +128,8 @@ func applyAgent(
 	state.StagedPackURI = in.StagedPackURI
 
 	if ensureErr := ensureAgent(ctx, client, in, &state, report); ensureErr != nil {
-		return &state, ensureErr
+		// ensureAgent records nothing unless CreateAgent succeeded.
+		return prior, ensureErr
 	}
 
 	if !versionNeeded(in, &state) {
@@ -125,34 +139,47 @@ func applyAgent(
 
 	version, err := client.CreateVersion(ctx, in.AgentName, in.Spec)
 	if err != nil {
-		return &state, fmt.Errorf("create version of agent %q: %w", in.AgentName, err)
+		err = fmt.Errorf("create version of agent %q: %w", in.AgentName, err)
+		// The real client returns the version alongside the error when it
+		// gave up waiting for it. That version exists and may still go active,
+		// so it is recorded rather than forgotten. A version that failed will
+		// never serve and is not.
+		if version != nil && version.Version != "" && version.Status != VersionStatusFailed {
+			recordInFlight(&state, in, version, report, "Version did not finish provisioning")
+			return &state, err
+		}
+		if state.AgentName == prior.AgentName {
+			return prior, err
+		}
+		return &state, err
 	}
 
 	// A version that has not gone active must not be served — the endpoint
-	// would route to a container that is not running. Record it as in-flight so
-	// the next apply reconciles it rather than creating a duplicate.
+	// would route to a container that is not running. Record it as in-flight
+	// rather than forgetting it.
 	if version.Status != VersionStatusActive {
-		state.InFlight = &InFlightVersion{
-			Version:    version.Version,
-			PackHash:   in.PackHash,
-			ConfigHash: in.ConfigHash,
-		}
-		reportResource(report, ResTypeAgentVersion, version.Version,
-			deploy.ActionCreate, "created", "Version is still provisioning")
+		recordInFlight(&state, in, version, report, "Version is still provisioning")
 		return &state, nil
 	}
 
-	state.InFlight = nil
 	reportResource(report, ResTypeAgentVersion, version.Version,
 		deploy.ActionCreate, "created", "Version is active")
 	reportProgress(report, "Version is active", progressVersionReady)
 
 	serveErr := client.SetEndpoint(ctx, in.AgentName, version.Version, in.Cfg.Protocols)
 	if serveErr != nil {
+		// The version exists but is not served: record it, replacing any
+		// earlier in-flight record, so status reports the deployment degraded.
+		state.InFlight = &InFlightVersion{
+			Version:    version.Version,
+			PackHash:   in.PackHash,
+			ConfigHash: in.ConfigHash,
+		}
 		return &state, fmt.Errorf("configure endpoint of agent %q for version %q: %w",
 			in.AgentName, version.Version, serveErr)
 	}
 
+	state.InFlight = nil
 	state.recordVersion(version.Version)
 	state.PackHash = in.PackHash
 	state.ConfigHash = in.ConfigHash
@@ -164,6 +191,20 @@ func applyAgent(
 	reportProgress(report, "Deployment complete", progressServed)
 
 	return &state, nil
+}
+
+// recordInFlight records a created version that is not serving.
+func recordInFlight(
+	state *State, in *applyInput, version *AgentVersion,
+	report *adaptersdk.ProgressReporter, detail string,
+) {
+	state.InFlight = &InFlightVersion{
+		Version:    version.Version,
+		PackHash:   in.PackHash,
+		ConfigHash: in.ConfigHash,
+	}
+	reportResource(report, ResTypeAgentVersion, version.Version,
+		deploy.ActionCreate, "created", detail)
 }
 
 // ensureAgent creates the agent shell when it does not exist yet. The agent

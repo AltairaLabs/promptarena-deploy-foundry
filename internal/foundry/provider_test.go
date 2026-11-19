@@ -36,7 +36,8 @@ func TestGetProviderInfo(t *testing.T) {
 	// Capabilities must reflect what actually works end to end.
 	want := map[string]bool{
 		"validate": true, "plan": true, "apply": true, "destroy": true, "status": true,
-		deploy.RuntimeOverrideCapability: true,
+		deploy.RuntimeOverrideCapability:   true,
+		deploy.PartialApplyStateCapability: true,
 	}
 	for _, c := range info.Capabilities {
 		if !want[c] {

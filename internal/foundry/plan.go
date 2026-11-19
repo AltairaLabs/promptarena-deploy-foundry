@@ -127,7 +127,7 @@ func versionChange(in *planInput) (change deploy.ResourceChange, needed bool) {
 func versionReason(in *planInput) (reason string, needed bool) {
 	if in.Prior.InFlight != nil {
 		return fmt.Sprintf(
-			"Previous creation of version %s did not finish; reconcile it",
+			"Previous creation of version %s did not finish; create a new version",
 			in.Prior.InFlight.Version), true
 	}
 	if in.Prior.ServedVersion == "" {

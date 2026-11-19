@@ -15,9 +15,10 @@ const StateVersion = 1
 // rather than grown without limit.
 const maxPriorVersions = 20
 
-// InFlightVersion records a version whose creation was still running when the
-// adapter stopped waiting. A later apply reconciles it rather than orphaning
-// the resource or creating a duplicate alongside it.
+// InFlightVersion records a version that was created but is not served: its
+// creation was still running when the adapter stopped waiting, or the endpoint
+// update that would have served it failed. Status reports it as degraded, and
+// the next apply creates a fresh version to serve. It is not adopted.
 type InFlightVersion struct {
 	Version string `json:"version"`
 	// PackHash and ConfigHash are the hashes the in-flight version was created

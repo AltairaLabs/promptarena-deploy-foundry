@@ -75,11 +75,18 @@ func (p *Provider) newControlPlaneClient(ctx context.Context, cfg *Config) (foun
 // GetProviderInfo returns metadata about the foundry adapter. Capabilities
 // lists only what works end to end — advertising more would fail at deploy
 // time rather than at discovery time.
+//
+// partial_apply_state is honest because a failed Apply builds its state from
+// the prior state: the agent and served version it never reached are carried
+// forward, and an agent it created is added.
 func (p *Provider) GetProviderInfo(_ context.Context) (*deploy.ProviderInfo, error) {
 	return &deploy.ProviderInfo{
-		Name:         ProviderName,
-		Version:      Version,
-		Capabilities: []string{"validate", "plan", "apply", "destroy", "status", deploy.RuntimeOverrideCapability},
+		Name:    ProviderName,
+		Version: Version,
+		Capabilities: []string{
+			"validate", "plan", "apply", "destroy", "status",
+			deploy.RuntimeOverrideCapability, deploy.PartialApplyStateCapability,
+		},
 		ConfigSchema: configSchema,
 	}, nil
 }

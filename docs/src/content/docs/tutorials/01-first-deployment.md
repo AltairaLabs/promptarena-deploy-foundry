@@ -153,8 +153,8 @@ leaves `creating`, then points the endpoint selector at it at 100% traffic.
 
 If the version never becomes active it is recorded as **in-flight** and
 deliberately not served — pointing the endpoint at a container that is not
-running would only route traffic into a hole. The next apply reconciles it
-rather than creating a duplicate.
+running would only route traffic into a hole. The next apply creates a fresh
+version to serve.
 
 :::caution[`active` means the image pulled, and nothing more]
 The platform validates the image when the version is created, but does **not**

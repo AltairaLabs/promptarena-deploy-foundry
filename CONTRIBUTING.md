@@ -138,9 +138,11 @@ The adapter implements PromptKit's `deploy.Provider` interface via `adaptersdk.S
 
 Releases are handled by maintainers:
 
-1. Tag the commit with a `v*` semver tag (e.g. `v0.2.0`)
-2. GoReleaser builds the adapter binaries and drafts the release
-3. Publishing the release triggers the runtime image build to `ghcr.io/altairalabs/promptkit-foundry-runtime`
+1. Push an annotated `v*` semver tag on `main` (e.g. `git tag -a v0.2.0 -m "v0.2.0"`).
+2. The release workflow runs the tests, and GoReleaser builds the adapter binaries and their SBOMs and publishes the release directly. It is never a draft: the adapter installer downloads release assets anonymously, and a draft's assets are not public.
+3. The same workflow then builds the runtime image and pushes `ghcr.io/altairalabs/promptkit-foundry-runtime:<tag>`. It also moves `:latest` when the tag is the newest stable release.
+
+To rebuild or backfill the image for an existing tag, run `gh workflow run publish-runtime.yml -f tag=<tag>`. Rebuilding an older tag never moves `:latest`.
 
 ## Questions?
 

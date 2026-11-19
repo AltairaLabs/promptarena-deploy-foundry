@@ -47,7 +47,7 @@ adapter behaviour or pack delivery rather than the running agent.
 | Action | Detail |
 |---|---|
 | `CREATE` | `Create the first agent version`, `pack changed`, `config changed`, or both. |
-| `UPDATE` | `Previous creation of version N did not finish; reconcile it`. |
+| `UPDATE` | `Previous creation of version N did not finish; create a new version`. |
 
 A multi-member pack is noted in the detail — `(3 agents routed in-process)` —
 because one Foundry agent serves them all, with PromptKit routing between
@@ -67,8 +67,8 @@ and that the workspace managed identity has access.
 
 A version that never becomes active is recorded as **in-flight** and is
 deliberately *not* served — pointing the endpoint at it would route traffic to a
-container that is not running. The next apply reconciles it rather than creating
-a duplicate alongside it.
+container that is not running. Status reports the deployment as degraded, and
+the next apply creates a fresh version to serve.
 
 Note that `active` means the image **pulled**. The platform does not start or
 probe the container until a session exists.
