@@ -1,37 +1,74 @@
 name: Publish runtime image
 
+# Called by release.yml after GoReleaser succeeds, so a tag push builds the
+# image. It does not listen for `release: published`: GoReleaser publishes the
+# release with GITHUB_TOKEN (`draft: false`), and GitHub starts no workflow from
+# an event that token caused, so that trigger never fired after v0.2.0.
+#
+# Dispatch it by hand to rebuild or backfill a tag. It checks out the tag it is
+# given, so the branch it is dispatched from does not matter.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v1.2.3
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       tag:
-        description: Image tag to publish
+        description: Release tag to build, e.g. v1.2.3
         required: true
 
 permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/altairalabs/promptkit-foundry-runtime
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$TAG' is not a vX.Y.Z release tag"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
 
-      - name: Resolve tag
+      # :latest moves only when this tag is the newest stable release, so a
+      # rebuild or backfill of an older tag cannot pull it backwards, and a
+      # prerelease never takes it.
+      - name: Resolve image tags
         id: meta
+        shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          INPUT_TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag }}
         run: |
-          if [ "$EVENT_NAME" = "release" ]; then
-            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          newest=$(git ls-remote --tags origin 'v*' \
+            | sed -e 's#.*refs/tags/##' -e 's#\^{}$##' \
+            | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
+            | sort -uV | tail -n 1)
+          if [ -z "$newest" ]; then
+            echo "::error::could not list stable v* tags from origin"
+            exit 1
           fi
+          echo "tag=$TAG newest=$newest"
+          {
+            echo 'tags<<EOF'
+            echo "$IMAGE:$TAG"
+            if [ "$TAG" = "$newest" ]; then echo "$IMAGE:latest"; fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -49,10 +86,8 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          build-args: VERSION=${{ steps.meta.outputs.tag }}
-          tags: |
-            ghcr.io/altairalabs/promptkit-foundry-runtime:${{ steps.meta.outputs.tag }}
-            ghcr.io/altairalabs/promptkit-foundry-runtime:latest
+          build-args: VERSION=${{ inputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
           # SBOM and SLSA provenance attached to the pushed image as OCI
           # referrers via buildx, with no Sigstore involvement. Inspect with:
           #   docker buildx imagetools inspect <ref> --format '{{json .SBOM}}'
@@ -65,4 +100,3 @@ jobs:
           # inspect with buildx.
           provenance: true
           sbom: true
-

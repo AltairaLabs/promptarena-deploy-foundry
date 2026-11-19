@@ -41,3 +41,16 @@ jobs:
         args: release --clean
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Built here rather than on `release: published`: GoReleaser publishes the
+  # release with GITHUB_TOKEN, and GitHub starts no workflow from an event that
+  # token caused.
+  publish-runtime:
+    name: Publish runtime image
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-runtime.yml
+    with:
+      tag: ${{ github.ref_name }}
