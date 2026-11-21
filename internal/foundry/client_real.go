@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -171,9 +172,19 @@ type (
 	}
 
 	versionWire struct {
-		Version string     `json:"version"`
-		Status  string     `json:"status"`
-		Error   *errorWire `json:"error,omitempty"`
+		Version  string            `json:"version"`
+		Status   string            `json:"status"`
+		Error    *errorWire        `json:"error,omitempty"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}
+
+	// listVersionsWire is the version list envelope. Verified against a live
+	// project: OpenAI-shaped like the agent list, with a last_id cursor that
+	// the next page's after parameter takes.
+	listVersionsWire struct {
+		Data    []versionWire `json:"data"`
+		LastID  string        `json:"last_id"`
+		HasMore bool          `json:"has_more"`
 	}
 
 	errorWire struct {
@@ -371,6 +382,56 @@ func (c *restClient) GetVersion(ctx context.Context, name, version string) (*Age
 	return toVersion(&wire), nil
 }
 
+// versionPageLimit is how many versions one list request asks for.
+const versionPageLimit = 100
+
+// ListVersions returns every version of an agent, following the list cursor
+// until the platform reports no more pages.
+func (c *restClient) ListVersions(ctx context.Context, name string) ([]AgentVersion, error) {
+	var versions []AgentVersion
+	after := ""
+	for {
+		page, err := c.listVersionsPage(ctx, name, after)
+		if err != nil {
+			return nil, err
+		}
+		for i := range page.Data {
+			versions = append(versions, *toVersion(&page.Data[i]))
+		}
+		// A page that claims more but names no cursor would loop forever on
+		// the same request.
+		if !page.HasMore || page.LastID == "" || page.LastID == after {
+			return versions, nil
+		}
+		after = page.LastID
+	}
+}
+
+// listVersionsPage fetches one page of an agent's versions.
+func (c *restClient) listVersionsPage(ctx context.Context, name, after string) (*listVersionsWire, error) {
+	params := []string{fmt.Sprintf("limit=%d", versionPageLimit)}
+	if after != "" {
+		params = append(params, "after="+url.QueryEscape(after))
+	}
+	resp, err := c.do(ctx, http.MethodGet, agentsPath+name+"/versions", nil, params...)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(resp)
+	if runtime.HasStatusCode(resp, http.StatusNotFound) {
+		return nil, notFoundError(resp, fmt.Errorf("agent %q: %w", name, ErrAgentNotFound))
+	}
+	if !runtime.HasStatusCode(resp, http.StatusOK) {
+		return nil, runtime.NewResponseError(resp)
+	}
+
+	var wire listVersionsWire
+	if err := runtime.UnmarshalAsJSON(resp, &wire); err != nil {
+		return nil, fmt.Errorf("decode version list: %w", err)
+	}
+	return &wire, nil
+}
+
 // SetEndpoint points the selector at one version at full traffic and declares
 // the protocols the endpoint exposes.
 //
@@ -549,7 +610,7 @@ func toAgent(w *agentWire) *Agent {
 
 // toVersion converts the wire shape into the adapter's domain type.
 func toVersion(w *versionWire) *AgentVersion {
-	version := &AgentVersion{Version: w.Version, Status: w.Status}
+	version := &AgentVersion{Version: w.Version, Status: w.Status, Metadata: w.Metadata}
 	if w.Error != nil {
 		version.FailureReason = w.Error.Message
 	}

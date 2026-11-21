@@ -110,6 +110,7 @@ over either.
 | `tags` | `map[string]string` | No | Tags applied to created resources |
 | `observability.tracing_enabled` | `boolean` | No | Emit OTel traces from the deployed agent (off by default) |
 | `observability.otlp_endpoint` | `string` | No | Overrides the endpoint Foundry injects; full URL with scheme |
+| `rollout_stage` | enum | No | `live` (default) creates and serves a version; `candidate` creates it without serving it; `promote` serves the staged version. See [Staged rollouts](#staged-rollouts) |
 | `dry_run` | `boolean` | No | Simulate apply without calling Azure |
 | `runtime_override` | object | No | Run another container in place of the runtime; see [Run another container](#run-another-container) |
 
@@ -233,6 +234,26 @@ One pack maps to **one** Foundry agent with **N immutable versions**. Any apply
 where the pack or config hash moves creates a new version, then PATCHes the
 served-version selector to it at 100% traffic. Prior versions are recorded, so
 a rollback is a selector PATCH rather than an image rebuild.
+
+Every version carries `pack_version` metadata set to the compiled pack's
+`version` field, next to the managed `app.altairalabs.ai/managed-by` and
+`promptkit.altairalabs.ai/pack-id` entries. `GET
+/agents/{agent}/versions?api-version=v1` returns it for each version.
+
+### Staged rollouts
+
+`rollout_stage: candidate` creates a version without moving the endpoint, and
+records it as the staged version. A later apply of the same pack and config
+with `rollout_stage: promote` creates nothing and points the endpoint at it,
+after checking the platform's version list that it exists and is active. Both
+are idempotent; candidate needs a version already served, and promote refuses a
+staged version built from a different pack or config, and does nothing when the
+served version already runs the pack. Sessions stay on the version they were created on, so a
+staged version can be tried in a session created on it with
+`version_indicator: {type: version_ref, agent_version: "<n>"}` (see
+[Invoke](docs/src/content/docs/how-to/invoke.md#a-session-on-a-specific-version)).
+`deploy plan` and `deploy status` show both the served and the staged version;
+the adapter never deletes either.
 
 PromptKit routes between the pack's agents in-process via `runtime/composition`
 and `runtime/workflow` — one resource, one endpoint, one Entra identity, no

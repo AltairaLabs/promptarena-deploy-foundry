@@ -21,6 +21,13 @@ apply
 The agent is created once and persists. Everything that changes thereafter
 changes a version.
 
+`rollout_stage` splits the last two steps across two applies. A `candidate`
+apply creates the version and records it as staged without touching the
+endpoint; a `promote` apply creates nothing and points the endpoint at the
+staged version. Sessions stay on the version they were created on, so a staged
+version can be tried in a session opened on it while every other session keeps
+running the served one.
+
 ## Why one agent, not one per pack member
 
 A multi-agent pack could map to one Foundry agent per member. It does not.
@@ -44,10 +51,16 @@ change only adapter behaviour.
 If neither hash has moved, no version is created. Versions are immutable and
 billed; creating one per apply would be waste, not caution.
 
+The hashes recorded at the top of state are always the **served** version's. A
+staged version keeps its own, so a live apply never mistakes a staged pack for
+a deployed one, and a promote copies the staged hashes across only once the
+endpoint serves that version.
+
 ## State, and why it is load-bearing
 
 The adapter persists a small state document between operations: the agent name,
-the served version, prior versions, the two hashes, and any in-flight version.
+the served version and its pack version, prior versions, the two hashes, any
+in-flight version, and any staged version.
 
 None of it can be recomputed. The agent name is a *sanitized* form of the pack
 id, so it cannot be derived reliably in reverse; the served version is assigned

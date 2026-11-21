@@ -20,9 +20,12 @@ type recordingClient struct {
 	createVersionErr error
 	// failedVersion is returned alongside createVersionErr, the way the real
 	// client returns a version it gave up waiting for.
-	failedVersion *AgentVersion
+	failedVersion    *AgentVersion
 	servedVersionErr error
 	deleteErr        error
+	listVersionsErr  error
+	// listedStatus overrides the status ListVersions reports for every version.
+	listedStatus string
 
 	// versionStatus overrides what CreateVersion reports.
 	versionStatus string
@@ -77,6 +80,20 @@ func (c *recordingClient) SetEndpoint(
 		return c.servedVersionErr
 	}
 	return c.dryRunClient.SetEndpoint(ctx, name, version, protocols)
+}
+
+func (c *recordingClient) ListVersions(ctx context.Context, name string) ([]AgentVersion, error) {
+	c.calls = append(c.calls, "ListVersions")
+	if c.listVersionsErr != nil {
+		return nil, c.listVersionsErr
+	}
+	versions, err := c.dryRunClient.ListVersions(ctx, name)
+	if c.listedStatus != "" {
+		for i := range versions {
+			versions[i].Status = c.listedStatus
+		}
+	}
+	return versions, err
 }
 
 func (c *recordingClient) DeleteAgent(ctx context.Context, name string) error {

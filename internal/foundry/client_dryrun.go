@@ -14,6 +14,8 @@ import (
 // resources or needing credentials.
 type dryRunClient struct {
 	agents map[string]*Agent
+	// versions records each agent's simulated versions, oldest first.
+	versions map[string][]AgentVersion
 	// nextVersion assigns simulated version ids. Versions are immutable and
 	// monotonic on the real platform, so reusing an id here would let a bug
 	// that depends on distinct ids pass a dry run.
@@ -24,6 +26,7 @@ type dryRunClient struct {
 func newDryRunClient() *dryRunClient {
 	return &dryRunClient{
 		agents:      map[string]*Agent{},
+		versions:    map[string][]AgentVersion{},
 		nextVersion: 1,
 	}
 }
@@ -37,18 +40,37 @@ func (c *dryRunClient) CreateAgent(_ context.Context, spec *AgentSpec) (*Agent, 
 
 // CreateVersion returns an immediately-active version. A dry run must not
 // report one stuck in creating, or a caller polling for readiness would never
-// terminate.
+// terminate. Creating a version serves nothing, as on the real platform: only
+// SetEndpoint moves the selector.
 func (c *dryRunClient) CreateVersion(
-	_ context.Context, name string, _ *AgentSpec,
+	_ context.Context, name string, spec *AgentSpec,
 ) (*AgentVersion, error) {
-	version := strconv.Itoa(c.nextVersion)
-	c.nextVersion++
-
-	if agent, ok := c.agents[name]; ok {
-		agent.ServedVersion = version
+	version := AgentVersion{
+		Version: strconv.Itoa(c.nextVersion),
+		Status:  VersionStatusActive,
 	}
+	if spec != nil {
+		version.Metadata = maps.Clone(spec.Metadata)
+	}
+	c.nextVersion++
+	c.versions[name] = append(c.versions[name], version)
 
-	return &AgentVersion{Version: version, Status: VersionStatusActive}, nil
+	out := version
+	out.Metadata = maps.Clone(version.Metadata)
+	return &out, nil
+}
+
+// ListVersions returns the versions simulated for an agent.
+func (c *dryRunClient) ListVersions(_ context.Context, name string) ([]AgentVersion, error) {
+	if _, ok := c.agents[name]; !ok {
+		return nil, fmt.Errorf("agent %q: %w", name, ErrAgentNotFound)
+	}
+	out := make([]AgentVersion, 0, len(c.versions[name]))
+	for _, v := range c.versions[name] {
+		v.Metadata = maps.Clone(v.Metadata)
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // GetAgent returns a previously simulated agent.
@@ -99,6 +121,7 @@ func (c *dryRunClient) ListAgents(_ context.Context) ([]Agent, error) {
 // not an error.
 func (c *dryRunClient) DeleteAgent(_ context.Context, name string) error {
 	delete(c.agents, name)
+	delete(c.versions, name)
 	return nil
 }
 

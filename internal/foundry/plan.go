@@ -43,6 +43,8 @@ type planInput struct {
 	Protocols   []string
 	Delivery    PackDelivery
 	HasA2ATools bool
+	// Stage is the rollout stage, one of the Rollout* values; empty is live.
+	Stage string
 	// Drift describes resources that were in prior state but no longer exist,
 	// as found by verifying against the live control plane. They travel as
 	// changes rather than warnings so they are counted and rendered like
@@ -62,9 +64,8 @@ func buildPlan(in *planInput) *deploy.PlanResponse {
 	changes := append([]deploy.ResourceChange{}, in.Drift...)
 	changes = append(changes, agentChange(in))
 
-	if versionChange, ok := versionChange(in); ok {
-		changes = append(changes, versionChange, servedVersionChange(in))
-	}
+	rollout, rolloutWarnings := rolloutChanges(in)
+	changes = append(changes, rollout...)
 
 	if !in.Delivery.Inline {
 		changes = append(changes, deploy.ResourceChange{
@@ -78,8 +79,128 @@ func buildPlan(in *planInput) *deploy.PlanResponse {
 	return &deploy.PlanResponse{
 		Changes:  changes,
 		Summary:  summarizeChanges(changes),
-		Warnings: planWarnings(in),
+		Warnings: append(planWarnings(in), rolloutWarnings...),
 	}
+}
+
+// rolloutChanges plans the version and endpoint changes for the apply's
+// rollout stage, along with any warning that the apply will refuse.
+func rolloutChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
+	switch in.Stage {
+	case RolloutCandidate:
+		return candidateChanges(in)
+	case RolloutPromote:
+		return promoteChanges(in)
+	default:
+		return liveChanges(in), nil
+	}
+}
+
+// liveChanges plans a version that is created and served at once.
+func liveChanges(in *planInput) []deploy.ResourceChange {
+	var changes []deploy.ResourceChange
+	if change, ok := versionChange(in); ok {
+		changes = append(changes, change, servedVersionChange(in))
+	} else if served, ok := servedUnchanged(in); ok {
+		changes = append(changes, served)
+	}
+	return appendStagedUnchanged(changes, in)
+}
+
+// candidateChanges plans a version that is created and staged, not served.
+func candidateChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
+	if in.Prior.ServedVersion == "" {
+		return nil, []string{fmt.Sprintf("rollout_stage %s: %s; deploy with rollout_stage %s first",
+			RolloutCandidate, ErrNothingServed, RolloutLive)}
+	}
+	var served []deploy.ResourceChange
+	if change, ok := servedUnchanged(in); ok {
+		served = append(served, change)
+	}
+	if stagedFor(in.Prior, in.PackHash, in.ConfigHash) ||
+		servesFor(in.Prior, in.PackHash, in.ConfigHash) {
+		return appendStagedUnchanged(served, in), nil
+	}
+
+	stagedAction := deploy.ActionCreate
+	stagedText := "Record the new version as staged; the endpoint does not move"
+	if in.Prior.StagedVersion != nil {
+		stagedAction = deploy.ActionUpdate
+		stagedText = fmt.Sprintf("Replace staged version %s with the new version; the endpoint does not move",
+			in.Prior.StagedVersion.Version)
+	}
+	changes = []deploy.ResourceChange{
+		{
+			Type:   ResTypeAgentVersion,
+			Name:   in.AgentName,
+			Action: deploy.ActionCreate,
+			Detail: "Create a version to stage without serving it" + memberSuffix(in),
+		},
+		{
+			Type:   ResTypeStagedVersion,
+			Name:   stagedVersionName,
+			Action: stagedAction,
+			Detail: stagedText,
+		},
+	}
+	return append(changes, served...), nil
+}
+
+// promoteChanges plans serving the staged version. It creates no version.
+func promoteChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
+	if servesFor(in.Prior, in.PackHash, in.ConfigHash) {
+		served, _ := servedUnchanged(in)
+		return appendStagedUnchanged([]deploy.ResourceChange{served}, in), nil
+	}
+	if stagedFor(in.Prior, in.PackHash, in.ConfigHash) {
+		staged := in.Prior.StagedVersion.Version
+		return []deploy.ResourceChange{
+			{
+				Type:   ResTypeServedVersion,
+				Name:   servedVersionName,
+				Action: deploy.ActionUpdate,
+				Detail: fmt.Sprintf("Point the endpoint at staged version %s at 100%% traffic", staged),
+			},
+			{
+				Type:   ResTypeStagedVersion,
+				Name:   stagedVersionName,
+				Action: deploy.ActionUpdate,
+				Detail: fmt.Sprintf("Version %s becomes the served version; nothing stays staged", staged),
+			},
+		}, nil
+	}
+	if served, ok := servedUnchanged(in); ok {
+		changes = append(changes, served)
+	}
+	return appendStagedUnchanged(changes, in), []string{promoteRefusal(in.Prior).Error()}
+}
+
+// servedUnchanged reports the version the endpoint keeps serving, if any.
+func servedUnchanged(in *planInput) (deploy.ResourceChange, bool) {
+	if in.Prior.ServedVersion == "" {
+		return deploy.ResourceChange{}, false
+	}
+	return deploy.ResourceChange{
+		Type:   ResTypeServedVersion,
+		Name:   servedVersionName,
+		Action: deploy.ActionNoChange,
+		Detail: fmt.Sprintf("Serving version %s", in.Prior.ServedVersion),
+	}, true
+}
+
+// appendStagedUnchanged adds the staged version, when one is recorded, as a
+// resource this plan leaves alone.
+func appendStagedUnchanged(changes []deploy.ResourceChange, in *planInput) []deploy.ResourceChange {
+	staged := in.Prior.StagedVersion
+	if staged == nil {
+		return changes
+	}
+	return append(changes, deploy.ResourceChange{
+		Type:   ResTypeStagedVersion,
+		Name:   stagedVersionName,
+		Action: deploy.ActionNoChange,
+		Detail: fmt.Sprintf("Version %s is staged and not served", staged.Version),
+	})
 }
 
 // agentChange decides whether the agent shell itself must be created. The agent

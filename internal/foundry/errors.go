@@ -25,6 +25,21 @@ var (
 	// ErrVersionFailed reports that a version finished provisioning in the
 	// failed state. The wrapped message carries the platform's reason.
 	ErrVersionFailed = errors.New("agent version failed to provision")
+
+	// ErrNothingStaged reports a promote apply with no staged version to serve.
+	ErrNothingStaged = errors.New("no version is staged")
+
+	// ErrStagedMismatch reports a promote apply whose pack or config differs
+	// from what the staged version was built from.
+	ErrStagedMismatch = errors.New("the staged version was built from a different pack or config")
+
+	// ErrNothingServed reports a candidate apply on an agent that serves no
+	// version yet, which has no served version to keep the endpoint on.
+	ErrNothingServed = errors.New("no version is served yet")
+
+	// ErrStagedNotActive reports a staged version that is not active, so
+	// serving it would route to a container that does not run.
+	ErrStagedNotActive = errors.New("the staged version is not active")
 )
 
 // isAgentNotFound reports whether err means the agent does not exist, as

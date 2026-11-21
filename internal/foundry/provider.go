@@ -125,6 +125,7 @@ type planContext struct {
 	Cfg           *Config
 	AgentName     string
 	PackID        string
+	PackVersion   string
 	Members       []string
 	Prior         *State
 	PackHash      string
@@ -189,6 +190,10 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	version, err := packVersion(req.PackJSON)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.replacesRuntime() && entry == "" {
 		return nil, fmt.Errorf("runtime_override: the pack names no entry agent (agents.entry), " +
 			"so there is no agent to hand the replacement container as " + envAgentName)
@@ -198,6 +203,7 @@ func gatherPlanInput(req *deploy.PlanRequest) (*planContext, error) {
 		Cfg:           cfg,
 		AgentName:     sanitizeAgentName(id),
 		PackID:        id,
+		PackVersion:   version,
 		Members:       members,
 		Prior:         prior,
 		PackHash:      hashPack(req.PackJSON),
@@ -235,6 +241,7 @@ func (p *Provider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.P
 		Protocols:   in.Cfg.Protocols,
 		Delivery:    in.Delivery,
 		HasA2ATools: hasA2ATools(req.PackJSON),
+		Stage:       in.Cfg.rolloutStage(),
 		Drift:       drift,
 		Advisories:  advisories,
 	}), nil
@@ -343,6 +350,8 @@ func clearedState(prior *State) *State {
 	corrected.ServedVersion = ""
 	corrected.PriorVersions = nil
 	corrected.InFlight = nil
+	corrected.StagedVersion = nil
+	corrected.PackVersion = ""
 	return &corrected
 }
 
