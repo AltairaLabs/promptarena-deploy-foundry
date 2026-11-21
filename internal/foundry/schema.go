@@ -131,6 +131,11 @@ const baseConfigSchema = `{
       },
       "additionalProperties": false
     },
+    "rollout_stage": {
+      "type": "string",
+      "enum": ["live", "candidate", "promote"],
+      "description": "live (default) creates and serves a version; candidate creates it unserved; promote serves it"
+    },
     "dry_run": {
       "type": "boolean",
       "description": "When true, Apply simulates resource creation without calling Azure"

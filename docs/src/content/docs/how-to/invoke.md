@@ -88,6 +88,26 @@ platform routes to.
 ./scripts/invoke.sh --session "$SESSION_ID" "and their hex codes?"
 ```
 
+### A session on a specific version
+
+A session stays on the version it was created on, even after the endpoint
+moves. To try a version the endpoint does not serve, such as one staged by a
+`rollout_stage: candidate` apply, create the session on it explicitly:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_session_id":"try-v7","version_indicator":{"type":"version_ref","agent_version":"7"}}' \
+  "https://${ACCOUNT}.services.ai.azure.com/api/projects/${PROJECT}/agents/${AGENT}/endpoint/sessions?api-version=v1"
+```
+
+The platform answers `201` with the session, including its
+`version_indicator`, and starts that version's container. Calls that pass
+`agent_session_id=try-v7` then reach version 7. `GET …/endpoint/sessions/{id}`
+reports which version a session runs, and its output is under
+`…/versions/7/sessions/try-v7:logstream`.
+
 ### Conversation history
 
 The agent writes each turn's history under `$HOME`, which the platform persists

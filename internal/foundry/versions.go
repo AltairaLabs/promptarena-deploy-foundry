@@ -49,16 +49,22 @@ const (
 	tagManagedBy   = "app.altairalabs.ai/managed-by"
 	tagPackID      = "promptkit.altairalabs.ai/pack-id"
 	managedByValue = "promptarena"
+	// metaPackVersion carries the compiled pack's version field on every
+	// version the adapter creates, so a version can be traced back to the pack
+	// release it runs without decoding its environment.
+	metaPackVersion = "pack_version"
 	// managedTagCount is how many managed tags buildTags adds, used to size the
 	// merged map in one allocation.
-	managedTagCount = 2
+	managedTagCount = 3
 )
 
 // specInput is everything buildAgentSpec needs, gathered once by Apply.
 type specInput struct {
-	Cfg           *Config
-	AgentName     string
-	PackID        string
+	Cfg       *Config
+	AgentName string
+	PackID    string
+	// PackVersion is the pack's version field, recorded as version metadata.
+	PackVersion   string
 	PackJSON      string
 	Bindings      []ResolvedBinding
 	Delivery      PackDelivery
@@ -85,7 +91,7 @@ func buildAgentSpec(in *specInput) (spec *AgentSpec, errors []string) {
 		Protocols:          in.Cfg.Protocols,
 		IdleTimeoutMinutes: in.Cfg.IdleTimeoutMinutes,
 		Env:                env,
-		Metadata:           buildTags(in.Cfg, in.PackID),
+		Metadata:           buildTags(in.Cfg, in.PackID, in.PackVersion),
 	}, nil
 }
 
@@ -174,13 +180,17 @@ func addStateStoreEnv(env map[string]string, store *StateStore, lookupEnv func(s
 
 // buildTags merges the user's tags with the managed ones. Managed tags are
 // applied last so a user tag cannot overwrite them and leave a deployment
-// unattributable.
-func buildTags(cfg *Config, packID string) map[string]string {
+// unattributable. A pack with no version field gets no pack_version entry
+// rather than an empty one.
+func buildTags(cfg *Config, packID, packVersion string) map[string]string {
 	tags := make(map[string]string, len(cfg.Tags)+managedTagCount)
 	maps.Copy(tags, cfg.Tags)
 
 	tags[tagManagedBy] = managedByValue
 	tags[tagPackID] = packID
+	if packVersion != "" {
+		tags[metaPackVersion] = packVersion
+	}
 
 	return tags
 }

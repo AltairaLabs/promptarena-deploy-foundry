@@ -75,7 +75,13 @@ These are not preferences — the platform enforces them:
   is needed here, unlike vertex's `GOOGLE_CLOUD_*` collision.
 - **Agent versions are immutable.** Apply creates a version and then PATCHes
   the served-version selector; traffic splitting is not supported (one
-  `FixedRatio` rule at 100%).
+  `FixedRatio` rule at 100%). `rollout_stage: candidate` stops after the
+  create, recording the version as staged, and `promote` does only the PATCH.
+  Measured against a live project: a session created through
+  `POST …/endpoint/sessions` with `version_indicator: {type: version_ref,
+  agent_version}` runs that version while the selector points elsewhere, and a
+  version's `metadata` (including `pack_version`) round-trips through
+  `GET …/versions`, which pages with `limit` and `after=<last_id>`.
 - **Go is not a supported container language — this is the project's central
   open risk.** Microsoft supports Python and C# only, and the docs state Go
   support is "coming soon". The platform's container contract is documented

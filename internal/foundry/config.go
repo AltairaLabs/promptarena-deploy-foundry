@@ -93,6 +93,13 @@ type Config struct {
 	Tags                 map[string]string `json:"tags,omitempty"`
 	DryRun               bool              `json:"dry_run,omitempty"`
 
+	// RolloutStage selects what an apply does with the version it builds:
+	// live (the default) creates and serves it, candidate creates it without
+	// serving it, and promote serves the version an earlier candidate apply
+	// staged. It is deliberately absent from the config hash: moving from
+	// candidate to promote must not read as a config change.
+	RolloutStage string `json:"rollout_stage,omitempty"`
+
 	Providers     []ProviderBinding `json:"providers,omitempty"`
 	Observability *Observability    `json:"observability,omitempty"`
 	StateStore    *StateStore       `json:"state_store,omitempty"`
@@ -103,6 +110,44 @@ type Config struct {
 	// A hosted agent takes an image and no command, so command and args are
 	// refused.
 	RuntimeOverride *deploy.RuntimeOverride `json:"runtime_override,omitempty"`
+}
+
+// Rollout stages an apply can run in.
+const (
+	// RolloutLive creates a version and points the endpoint at it.
+	RolloutLive = "live"
+	// RolloutCandidate creates a version and records it as staged, leaving the
+	// endpoint on the version it already serves.
+	RolloutCandidate = "candidate"
+	// RolloutPromote creates no version and points the endpoint at the staged
+	// one.
+	RolloutPromote = "promote"
+)
+
+// validRolloutStages is the set of stages an apply understands.
+var validRolloutStages = map[string]bool{
+	RolloutLive:      true,
+	RolloutCandidate: true,
+	RolloutPromote:   true,
+}
+
+// rolloutStage returns the configured stage, with unset meaning live.
+func (c *Config) rolloutStage() string {
+	if c.RolloutStage == "" {
+		return RolloutLive
+	}
+	return c.RolloutStage
+}
+
+// validateRolloutStage rejects a stage the adapter does not know. An unknown
+// stage silently treated as live would serve a version the author meant only
+// to stage.
+func (c *Config) validateRolloutStage() []string {
+	if c.RolloutStage == "" || validRolloutStages[c.RolloutStage] {
+		return nil
+	}
+	return []string{fmt.Sprintf("rollout_stage %q is not one of %s, %s, %s",
+		c.RolloutStage, RolloutLive, RolloutCandidate, RolloutPromote)}
 }
 
 // State store kinds a deployed agent can use for conversation history.
@@ -200,6 +245,7 @@ func (c *Config) validateStructure() []string {
 	errs = append(errs, c.validateStagingContainer()...)
 	errs = append(errs, c.validateObservability()...)
 	errs = append(errs, c.validateRuntimeOverride()...)
+	errs = append(errs, c.validateRolloutStage()...)
 
 	return errs
 }

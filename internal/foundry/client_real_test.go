@@ -565,3 +565,80 @@ func TestToAgentReadsALegacyVersionRule(t *testing.T) {
 		t.Errorf("ServedVersion = %q, want 2", agent.ServedVersion)
 	}
 }
+
+// The version list is paged with a last_id cursor; every page must be read,
+// and each version's metadata must come back with it.
+func TestRESTListVersionsPagesAndKeepsMetadata(t *testing.T) {
+	var queries []string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents/a/versions" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		queries = append(queries, r.URL.RawQuery)
+		if r.URL.Query().Get("after") == "" {
+			writeJSON(t, w, http.StatusOK, map[string]any{
+				"data": []any{map[string]any{
+					"version": "1", "status": "active",
+					"metadata": map[string]string{"pack_version": "v1"},
+				}},
+				"last_id": "a:1", "has_more": true,
+			})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"data":    []any{map[string]any{"version": "2", "status": "creating"}},
+			"last_id": "a:2", "has_more": false,
+		})
+	})
+
+	got, err := c.ListVersions(context.Background(), "a")
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(got) != 2 || got[0].Metadata["pack_version"] != "v1" || got[1].Status != VersionStatusCreating {
+		t.Errorf("versions = %+v", got)
+	}
+	if len(queries) != 2 || !strings.Contains(queries[1], "after=a%3A1") {
+		t.Errorf("queries = %v, want the second page requested after a:1", queries)
+	}
+}
+
+func TestRESTListVersionsErrors(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{"code": "not_found", "message": "Agent a doesn't exist"},
+		})
+	})
+	if _, err := c.ListVersions(context.Background(), "a"); !errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("err = %v, want ErrAgentNotFound", err)
+	}
+
+	c = testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+	if _, err := c.ListVersions(context.Background(), "a"); err == nil {
+		t.Error("ListVersions succeeded on a 403")
+	}
+
+	c = testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{"))
+	})
+	if _, err := c.ListVersions(context.Background(), "a"); err == nil {
+		t.Error("ListVersions succeeded on a malformed body")
+	}
+}
+
+// A page claiming more with a cursor that does not advance must not loop.
+func TestRESTListVersionsStopsOnAStuckCursor(t *testing.T) {
+	calls := 0
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"data": []any{}, "last_id": "", "has_more": true,
+		})
+	})
+	if _, err := c.ListVersions(context.Background(), "a"); err != nil || calls != 1 {
+		t.Errorf("err = %v, calls = %d; want one call", err, calls)
+	}
+}

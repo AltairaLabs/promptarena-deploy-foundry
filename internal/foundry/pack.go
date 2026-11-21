@@ -36,6 +36,7 @@ func decidePackDelivery(packJSON string, cfg *Config) PackDelivery {
 // tolerant of pack schema growth.
 type packView struct {
 	ID      string                     `json:"id"`
+	Version string                     `json:"version"`
 	Prompts map[string]json.RawMessage `json:"prompts"`
 	Tools   map[string]json.RawMessage `json:"tools"`
 	Agents  *packAgentsView            `json:"agents"`
@@ -66,6 +67,15 @@ func packID(packJSON string) (string, error) {
 		return "", fmt.Errorf("pack has no id")
 	}
 	return pack.ID, nil
+}
+
+// packVersion returns the pack's own version field, empty when it has none.
+func packVersion(packJSON string) (string, error) {
+	pack, err := decodePack(packJSON)
+	if err != nil {
+		return "", err
+	}
+	return pack.Version, nil
 }
 
 // packMembers lists the agents the deployment will serve and names the entry.

@@ -69,6 +69,7 @@ func (p *Provider) Apply(
 		Cfg:           in.Cfg,
 		AgentName:     in.AgentName,
 		PackID:        in.PackID,
+		PackVersion:   in.PackVersion,
 		PackJSON:      req.PackJSON,
 		Bindings:      in.Bindings,
 		Delivery:      in.Delivery,
@@ -127,9 +128,19 @@ func applyAgent(
 	state.AdapterVersion = Version
 	state.StagedPackURI = in.StagedPackURI
 
+	// Promote never creates anything, the agent included: with no agent there
+	// is nothing staged to serve.
+	if in.Cfg.rolloutStage() == RolloutPromote {
+		return applyPromote(ctx, client, in, prior, &state, report)
+	}
+
 	if ensureErr := ensureAgent(ctx, client, in, &state, report); ensureErr != nil {
 		// ensureAgent records nothing unless CreateAgent succeeded.
 		return prior, ensureErr
+	}
+
+	if in.Cfg.rolloutStage() == RolloutCandidate {
+		return applyCandidate(ctx, client, in, prior, &state, report)
 	}
 
 	if !versionNeeded(in, &state) {
@@ -137,20 +148,12 @@ func applyAgent(
 		return &state, nil
 	}
 
-	version, err := client.CreateVersion(ctx, in.AgentName, in.Spec)
+	version, err := createVersion(ctx, client, in)
+	if version == nil {
+		return unlessUnchanged(prior, &state), err
+	}
 	if err != nil {
-		err = fmt.Errorf("create version of agent %q: %w", in.AgentName, err)
-		// The real client returns the version alongside the error when it
-		// gave up waiting for it. That version exists and may still go active,
-		// so it is recorded rather than forgotten. A version that failed will
-		// never serve and is not.
-		if version != nil && version.Version != "" && version.Status != VersionStatusFailed {
-			recordInFlight(&state, in, version, report, "Version did not finish provisioning")
-			return &state, err
-		}
-		if state.AgentName == prior.AgentName {
-			return prior, err
-		}
+		recordInFlight(&state, in, version, report, "Version did not finish provisioning")
 		return &state, err
 	}
 
@@ -179,18 +182,56 @@ func applyAgent(
 			in.AgentName, version.Version, serveErr)
 	}
 
-	state.InFlight = nil
-	state.recordVersion(version.Version)
-	state.PackHash = in.PackHash
-	state.ConfigHash = in.ConfigHash
+	markServed(&state, version.Version, in.PackHash, in.ConfigHash, in.Spec.Metadata[metaPackVersion])
+	reportServed(report, in, version.Version)
+	return &state, nil
+}
 
+// createVersion creates a version for the apply.
+//
+// It returns a nil version when there is nothing to record: the create failed
+// outright, or the version it returned failed and will never serve. A non-nil
+// version alongside an error is one the real client gave up waiting for; it
+// exists and may still go active, so the caller records it rather than
+// forgetting it.
+func createVersion(ctx context.Context, client foundryClient, in *applyInput) (*AgentVersion, error) {
+	version, err := client.CreateVersion(ctx, in.AgentName, in.Spec)
+	if err == nil {
+		return version, nil
+	}
+	err = fmt.Errorf("create version of agent %q: %w", in.AgentName, err)
+	if version != nil && version.Version != "" && version.Status != VersionStatusFailed {
+		return version, err
+	}
+	return nil, err
+}
+
+// unlessUnchanged returns prior when this apply recorded nothing new, so Apply
+// can hand the stored state back verbatim, and the updated state otherwise.
+func unlessUnchanged(prior, state *State) *State {
+	if state.AgentName == prior.AgentName {
+		return prior
+	}
+	return state
+}
+
+// markServed records version as the served one, built from the given hashes.
+// Any in-flight record is cleared: a version is serving again.
+func markServed(state *State, version, packHash, configHash, packVersion string) {
+	state.InFlight = nil
+	state.recordVersion(version)
+	state.PackHash = packHash
+	state.ConfigHash = configHash
+	state.PackVersion = packVersion
+}
+
+// reportServed reports the endpoint now serving version.
+func reportServed(report *adaptersdk.ProgressReporter, in *applyInput, version string) {
 	reportResource(report, ResTypeServedVersion, servedVersionName,
 		deploy.ActionUpdate, "updated",
-		fmt.Sprintf("Serving version %s at 100%% traffic", version.Version),
+		fmt.Sprintf("Serving version %s at 100%% traffic", version),
 		endpointLinks(in.Cfg, in.AgentName)...)
 	reportProgress(report, "Deployment complete", progressServed)
-
-	return &state, nil
 }
 
 // recordInFlight records a created version that is not serving.
@@ -268,14 +309,9 @@ func grantModelAccess(
 
 // versionNeeded reports whether this apply must create a version. Versions are
 // immutable and billed, so one is created only when something actually moved.
+// A staged version is not served, so it never satisfies a live apply.
 func versionNeeded(in *applyInput, state *State) bool {
-	if state.InFlight != nil {
-		return true
-	}
-	if state.ServedVersion == "" {
-		return true
-	}
-	return state.PackHash != in.PackHash || state.ConfigHash != in.ConfigHash
+	return !servesFor(state, in.PackHash, in.ConfigHash)
 }
 
 // reportProgress emits a progress event when a reporter is attached.
@@ -455,7 +491,35 @@ func agentResources(cfg *Config, agent *Agent, prior *State) []deploy.ResourceSt
 	default:
 		served.Status = ResourceHealthy
 		served.Detail = fmt.Sprintf("Serving version %s", agent.ServedVersion)
+		if prior.PackVersion != "" && agent.ServedVersion == prior.ServedVersion {
+			served.Detail += fmt.Sprintf(" (pack version %s)", prior.PackVersion)
+		}
 	}
 
-	return append(resources, served)
+	resources = append(resources, served)
+	if prior.StagedVersion != nil {
+		resources = append(resources, stagedStatus(agent, prior.StagedVersion))
+	}
+	return resources
+}
+
+// stagedStatus describes the staged version. Being staged is not a fault, so
+// it reports healthy; a staged version the endpoint serves anyway was
+// promoted outside this adapter, which is worth saying.
+func stagedStatus(agent *Agent, staged *StagedVersion) deploy.ResourceStatus {
+	detail := fmt.Sprintf("Version %s is staged and not served", staged.Version)
+	if staged.PackVersion != "" {
+		detail = fmt.Sprintf("Version %s (pack version %s) is staged and not served",
+			staged.Version, staged.PackVersion)
+	}
+	if agent.ServedVersion == staged.Version {
+		detail = fmt.Sprintf("Version %s is staged in state but already served; "+
+			"the endpoint was repointed outside this adapter", staged.Version)
+	}
+	return deploy.ResourceStatus{
+		Type:   ResTypeStagedVersion,
+		Name:   stagedVersionName,
+		Status: ResourceHealthy,
+		Detail: detail,
+	}
 }

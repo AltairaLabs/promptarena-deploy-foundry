@@ -44,6 +44,9 @@ type AgentVersion struct {
 	// FailureReason carries the platform's explanation when Status is failed.
 	// Without it an ACR pull denial is indistinguishable from any other failure.
 	FailureReason string
+	// Metadata is the version's own key/value data, including the pack_version
+	// entry the adapter writes on every version it creates.
+	Metadata map[string]string
 }
 
 // AgentSpec is the adapter's desired-state description of an agent version.
@@ -84,6 +87,9 @@ type foundryClient interface {
 	// GetVersion fetches one version, returning a wrapped ErrVersionNotFound
 	// when it does not exist.
 	GetVersion(ctx context.Context, name, version string) (*AgentVersion, error)
+	// ListVersions returns every version of an agent, returning a wrapped
+	// ErrAgentNotFound when the agent does not exist.
+	ListVersions(ctx context.Context, name string) ([]AgentVersion, error)
 	// SetEndpoint configures the agent's endpoint: it points the version
 	// selector at version at 100% (traffic splitting is not supported) and
 	// declares which protocols the endpoint exposes.

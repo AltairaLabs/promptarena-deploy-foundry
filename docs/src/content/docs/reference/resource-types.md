@@ -3,14 +3,15 @@ title: Resource types
 description: The resources this adapter plans, creates and destroys.
 ---
 
-A plan names four resource types. Three are real Azure objects; one is the
-staged pack.
+A plan names five resource types. Three are real Azure objects; one is a
+version recorded as staged; one is the staged pack.
 
 | Type | What it is |
 |---|---|
 | `agent` | The Foundry hosted agent. One per pack. |
 | `agent_version` | One immutable version of that agent. |
 | `served_version` | The endpoint selector pointing at a version. |
+| `staged_version` | A version created by a `rollout_stage: candidate` apply that the endpoint does not serve. |
 | `pack_object` | The pack staged to Blob storage, when it is too large to inline. |
 
 ## agent
@@ -41,13 +42,16 @@ Versions are billed, so one is created only when the pack hash or config hash
 actually moves. The config hash covers the account, project, image, cpu, memory,
 protocols, idle timeout, tags, resolved bindings, observability and tool specs —
 everything that becomes part of the deployed version. It deliberately excludes
-`dry_run`, `pack_inline_limit_bytes` and `staging_container`, which change
-adapter behaviour or pack delivery rather than the running agent.
+`dry_run`, `rollout_stage`, `pack_inline_limit_bytes` and `staging_container`,
+which change adapter behaviour or pack delivery rather than the running agent.
 
 | Action | Detail |
 |---|---|
-| `CREATE` | `Create the first agent version`, `pack changed`, `config changed`, or both. |
+| `CREATE` | `Create the first agent version`, `pack changed`, `config changed`, or both. With `rollout_stage: candidate`, `Create a version to stage without serving it`. |
 | `UPDATE` | `Previous creation of version N did not finish; create a new version`. |
+
+Each version carries `pack_version` metadata, the compiled pack's `version`
+field; see [Version metadata](/reference/configuration/#version-metadata).
 
 A multi-member pack is noted in the detail — `(3 agents routed in-process)` —
 because one Foundry agent serves them all, with PromptKit routing between
@@ -87,6 +91,28 @@ so both travel together in one merge-patch.
 Prior versions are recorded newest-first, bounded to the most recent 20, which
 makes a rollback a selector patch rather than an image rebuild.
 
+| Action | When |
+|---|---|
+| `CREATE` | The first version is served. |
+| `UPDATE` | A new version is served, or `rollout_stage: promote` serves the staged one. |
+| `NO-CHANGE` | The endpoint keeps serving the version it does. |
+
+## staged_version
+
+A version created with `rollout_stage: candidate`. It exists on the platform and
+can be reached by a session created on it, but the endpoint does not serve it
+and new sessions do not use it. Unlike an in-flight version it is not a fault:
+status reports it healthy.
+
+| Action | When |
+|---|---|
+| `CREATE` | A candidate apply stages a version and none was staged. |
+| `UPDATE` | A candidate apply stages a version in place of a staged version built from another pack or config. |
+| `NO-CHANGE` | A version is staged and this apply leaves it alone. |
+
+A promote apply serves it and clears the record. See
+[Staged rollouts](/reference/configuration/#staged-rollouts).
+
 ## pack_object
 
 Appears only when the serialized pack exceeds `pack_inline_limit_bytes`
@@ -107,6 +133,6 @@ failing on an already-clean project.
 
 | Status | Meaning |
 |---|---|
-| `deployed` | The agent exists and is serving a version. |
+| `deployed` | The agent exists and is serving a version. A staged version does not change this. |
 | `degraded` | It exists but serves nothing, or a version never finished provisioning. |
 | `not_deployed` | Nothing recorded, or the recorded agent no longer exists. |

@@ -27,6 +27,7 @@ config before the adapter is ever invoked.
 | `state_store.root` | string | No | Directory for `file`. Defaults to a directory under the sandbox `$HOME`. |
 | `state_store.url_from_env` | string | No | Environment variable holding the redis connection string. Required for `redis`. |
 | `tags` | map | No | Applied as agent metadata. |
+| `rollout_stage` | enum | No | `live` (default), `candidate` or `promote`. See [Staged rollouts](#staged-rollouts). |
 | `dry_run` | boolean | No | Simulate apply without calling Azure. |
 | `runtime_override` | object | No | Run another container in place of the runtime. See [Runtime override](#runtime-override). |
 
@@ -50,6 +51,69 @@ then fails on the upload.
 
 A pack over the limit with no `staging_container` set is refused at plan time,
 before anything is created.
+
+## Staged rollouts
+
+By default an apply creates a version and serves it at once. `rollout_stage`
+splits that in two, so a version can be tried before any new session uses it:
+
+| `rollout_stage` | Apply does |
+|---|---|
+| unset or `live` | Creates a version and points the endpoint at it at 100% traffic. |
+| `candidate` | Creates a version and leaves the endpoint where it is. State records it as the **staged** version. |
+| `promote` | Creates no version. Checks the staged version against the platform's version list, and that it is `active`, then points the endpoint at it. |
+
+```yaml
+deploy:
+  provider: foundry
+  config:
+    # ...
+    rollout_stage: candidate   # then: promote
+```
+
+A typical rollout applies the pack with `candidate`, tests the staged version by
+opening a session on it (see
+[Invoke a deployed agent](/how-to/invoke/#a-session-on-a-specific-version)),
+then applies the same pack and config with `promote`.
+
+- **Both stages are idempotent.** A candidate for a pack and config that are
+  already staged, or already served, creates nothing. A promote whose version
+  is already served succeeds and does nothing.
+- **Promote serves only what was staged for this pack and config.** A promote
+  with a different pack or config is refused, so the state never records hashes
+  the served version was not built from. A promote with nothing staged is
+  refused too. Neither changes the endpoint.
+- **A staged version deleted from the platform** fails the promote and is
+  dropped from state, so the next candidate apply stages a new one.
+- **`rollout_stage` is not in the config hash.** Moving from `candidate` to
+  `promote` is not a config change.
+- **A live apply ignores the staged version.** It compares the pack and config
+  against the *served* version only, so a pack that is staged but not served
+  still creates and serves a version. The staged record is kept.
+- The adapter deletes no versions. Neither the served nor the staged version is
+  ever removed, short of destroying the agent.
+
+`deploy plan` and `deploy status` list both the served and the staged version.
+
+## Version metadata
+
+Every version the adapter creates carries this metadata alongside your `tags`:
+
+| Key | Value |
+|---|---|
+| `app.altairalabs.ai/managed-by` | `promptarena` |
+| `promptkit.altairalabs.ai/pack-id` | The pack's `id`. |
+| `pack_version` | The compiled pack's `version` field. Left out when the pack has none. |
+
+These win over a tag of the same name. They read back from the version list:
+
+```
+GET https://{account}.services.ai.azure.com/api/projects/{project}/agents/{agent}/versions?api-version=v1
+```
+
+The list is newest first under `data`, each entry with its `version`, `status`
+and `metadata`. It is paged: when `has_more` is true, pass `last_id` back as
+`after` (`&limit=100&after={last_id}`) for the next page.
 
 ## Runtime override
 

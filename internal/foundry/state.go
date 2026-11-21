@@ -27,6 +27,21 @@ type InFlightVersion struct {
 	ConfigHash string `json:"config_hash,omitempty"`
 }
 
+// StagedVersion records a version created by a candidate apply and not served.
+// A promote apply points the endpoint at it. Unlike an in-flight version it is
+// wanted as it is: it is neither degraded nor replaced by the next apply.
+type StagedVersion struct {
+	Version string `json:"version"`
+	// PackHash and ConfigHash are what the version was built from. Promote
+	// refuses a staged version built from a different pack or config, so state
+	// never records hashes the served version does not run.
+	PackHash   string `json:"pack_hash,omitempty"`
+	ConfigHash string `json:"config_hash,omitempty"`
+	// PackVersion is the pack's version field, also written to the version's
+	// pack_version metadata.
+	PackVersion string `json:"pack_version,omitempty"`
+}
+
 // State is the opaque adapter state the CLI persists between operations.
 //
 // One pack maps to one agent with N immutable versions, so the agent name and
@@ -45,6 +60,10 @@ type State struct {
 	PriorVersions  []string         `json:"prior_versions,omitempty"` // newest first
 	StagedPackURI  string           `json:"staged_pack_uri,omitempty"`
 	InFlight       *InFlightVersion `json:"in_flight,omitempty"`
+	// PackVersion is the pack version the served version was built from.
+	PackVersion string `json:"pack_version,omitempty"`
+	// StagedVersion is a version a candidate apply created and nothing serves.
+	StagedVersion *StagedVersion `json:"staged_version,omitempty"`
 
 	// unknown carries fields this adapter version does not recognize.
 	unknown map[string]json.RawMessage
@@ -67,6 +86,8 @@ var knownStateFields = map[string]bool{
 	"prior_versions":  true,
 	"staged_pack_uri": true,
 	"in_flight":       true,
+	"pack_version":    true,
+	"staged_version":  true,
 }
 
 // parseState unmarshals prior adapter state. An empty string yields a fresh
