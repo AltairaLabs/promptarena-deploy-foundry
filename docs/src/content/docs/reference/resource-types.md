@@ -107,10 +107,11 @@ status reports it healthy.
 | Action | When |
 |---|---|
 | `CREATE` | A candidate apply stages a version and none was staged. |
-| `UPDATE` | A candidate apply stages a version in place of a staged version built from another pack or config. |
+| `UPDATE` | A candidate apply stages a version in place of a staged version built from another pack or config, or a promote apply serves the staged version and clears the record. |
 | `NO-CHANGE` | A version is staged and this apply leaves it alone. |
 
-A promote apply serves it and clears the record. See
+A promote apply serves it and clears the record; a failed or deleted staged
+version is dropped by the promote that finds it. See
 [Staged rollouts](/reference/configuration/#staged-rollouts).
 
 ## pack_object

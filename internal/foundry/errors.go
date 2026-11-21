@@ -33,6 +33,10 @@ var (
 	// from what the staged version was built from.
 	ErrStagedMismatch = errors.New("the staged version was built from a different pack or config")
 
+	// ErrNothingServed reports a candidate apply on an agent that serves no
+	// version yet, which has no served version to keep the endpoint on.
+	ErrNothingServed = errors.New("no version is served yet")
+
 	// ErrStagedNotActive reports a staged version that is not active, so
 	// serving it would route to a container that does not run.
 	ErrStagedNotActive = errors.New("the staged version is not active")

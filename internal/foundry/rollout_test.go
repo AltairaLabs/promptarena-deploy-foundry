@@ -205,29 +205,33 @@ func TestCandidateReplacesAStaleStagedVersion(t *testing.T) {
 	}
 }
 
-// The first deploy can be a candidate: the agent is created, nothing served.
-func TestCandidateFirstDeploy(t *testing.T) {
+// A candidate needs a served version to keep the endpoint on, so a first
+// deploy is refused before anything, the agent included, is created.
+func TestCandidateFirstDeployIsRefused(t *testing.T) {
 	client := newRecordingClient()
 	p := applyProvider(t, client)
 
-	_, state, err := applyState(t, p, stageConfig(RolloutCandidate), versionedPack, "")
-	if err != nil {
-		t.Fatalf("candidate Apply: %v", err)
+	_, err := p.Apply(context.Background(), applyRequest(stageConfig(RolloutCandidate), versionedPack, ""), nil)
+	if !errors.Is(err, ErrNothingServed) {
+		t.Fatalf("err = %v, want ErrNothingServed", err)
 	}
-	if want := []string{"CreateAgent", "CreateVersion"}; !slices.Equal(client.calls, want) {
-		t.Errorf("calls = %v, want %v", client.calls, want)
+	if len(client.calls) != 0 {
+		t.Errorf("calls = %v, want none", client.calls)
 	}
-	if state.ServedVersion != "" || state.StagedVersion == nil {
-		t.Errorf("served %q staged %+v, want only a staged version", state.ServedVersion, state.StagedVersion)
+	got := buildPlan(&planInput{AgentName: "a", Prior: newState(), Stage: RolloutCandidate,
+		Delivery: PackDelivery{Inline: true}})
+	if !containsSubstring(got.Warnings, "no version is served") {
+		t.Errorf("Warnings = %v, want the refusal planned", got.Warnings)
 	}
 }
 
 func TestCandidateRecordsAVersionStillCreating(t *testing.T) {
 	client := newRecordingClient()
-	client.versionStatus = VersionStatusCreating
 	p := applyProvider(t, client)
+	prior := servedLive(t, p)
+	client.versionStatus = VersionStatusCreating
 
-	_, state, err := applyState(t, p, stageConfig(RolloutCandidate), versionedPack, "")
+	_, state, err := applyState(t, p, stageConfig(RolloutCandidate), versionedPackNext, prior)
 	if err != nil {
 		t.Fatalf("candidate Apply: %v", err)
 	}
@@ -347,7 +351,9 @@ func TestPromoteRefusals(t *testing.T) {
 		{name: "different pack", pack: versionedPack, want: ErrStagedMismatch},
 		{name: "deleted on the platform", pack: versionedPackNext, want: ErrVersionNotFound, cleared: true,
 			setup: func(c *recordingClient) { c.versions["solo-pack"] = c.versions["solo-pack"][:1] }},
-		{name: "not active", pack: versionedPackNext, want: ErrStagedNotActive,
+		{name: "still creating", pack: versionedPackNext, want: ErrStagedNotActive,
+			setup: func(c *recordingClient) { c.listedStatus = VersionStatusCreating }},
+		{name: "failed", pack: versionedPackNext, want: ErrVersionFailed, cleared: true,
 			setup: func(c *recordingClient) { c.listedStatus = VersionStatusFailed }},
 		{name: "list fails", pack: versionedPackNext, want: ErrProjectNotFound,
 			setup: func(c *recordingClient) { c.listVersionsErr = ErrProjectNotFound }},
@@ -593,5 +599,56 @@ func TestDryRunListVersions(t *testing.T) {
 	// Creating a version serves nothing.
 	if agent, _ := c.GetAgent(ctx, "a"); agent.ServedVersion != "" {
 		t.Errorf("ServedVersion = %q, want empty until SetEndpoint", agent.ServedVersion)
+	}
+}
+
+// A live apply that serves the staged pack drops the staged record, and a
+// promote never moves the endpoint back to an older version of the served pack.
+func TestLiveServingTheStagedPackClearsTheRecord(t *testing.T) {
+	client := newRecordingClient()
+	p := applyProvider(t, client)
+	prior := servedLive(t, p)
+	staged, _, err := applyState(t, p, stageConfig(RolloutCandidate), versionedPackNext, prior)
+	if err != nil {
+		t.Fatalf("candidate Apply: %v", err)
+	}
+	live, state, err := applyState(t, p, validConfigJSON, versionedPackNext, staged)
+	if err != nil {
+		t.Fatalf("live Apply: %v", err)
+	}
+	if state.StagedVersion != nil {
+		t.Errorf("StagedVersion = %+v, want it dropped once its pack is served", state.StagedVersion)
+	}
+
+	client.calls = nil
+	if _, _, err := applyState(t, p, stageConfig(RolloutPromote), versionedPackNext, live); err != nil {
+		t.Fatalf("promote Apply: %v", err)
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("calls = %v, want promote a no-op", client.calls)
+	}
+}
+
+// Served wins over staged even with a stale record left in state.
+func TestPromotePrefersServed(t *testing.T) {
+	in := stagedPlanInput(RolloutPromote)
+	in.Prior.PackHash = "ph"
+	in.Prior.StagedVersion = &StagedVersion{Version: "2", PackHash: "ph", ConfigHash: "ch"}
+	if s := findChange(buildPlan(in).Changes, ResTypeServedVersion); s == nil || s.Action != deploy.ActionNoChange {
+		t.Errorf("served change = %+v, want no change", s)
+	}
+
+	client := newRecordingClient()
+	p := applyProvider(t, client)
+	prior := servedLive(t, p)
+	st, _ := parseState(prior)
+	st.StagedVersion = &StagedVersion{Version: "1", PackHash: st.PackHash, ConfigHash: st.ConfigHash}
+	raw, _ := st.Marshal()
+	client.calls = nil
+	if _, _, err := applyState(t, p, stageConfig(RolloutPromote), versionedPack, raw); err != nil {
+		t.Fatalf("promote Apply: %v", err)
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("calls = %v, want none", client.calls)
 	}
 }

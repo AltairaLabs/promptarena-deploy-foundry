@@ -88,7 +88,7 @@ func buildPlan(in *planInput) *deploy.PlanResponse {
 func rolloutChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
 	switch in.Stage {
 	case RolloutCandidate:
-		return candidateChanges(in), nil
+		return candidateChanges(in)
 	case RolloutPromote:
 		return promoteChanges(in)
 	default:
@@ -108,14 +108,18 @@ func liveChanges(in *planInput) []deploy.ResourceChange {
 }
 
 // candidateChanges plans a version that is created and staged, not served.
-func candidateChanges(in *planInput) []deploy.ResourceChange {
+func candidateChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
+	if in.Prior.ServedVersion == "" {
+		return nil, []string{fmt.Sprintf("rollout_stage %s: %s; deploy with rollout_stage %s first",
+			RolloutCandidate, ErrNothingServed, RolloutLive)}
+	}
 	var served []deploy.ResourceChange
 	if change, ok := servedUnchanged(in); ok {
 		served = append(served, change)
 	}
 	if stagedFor(in.Prior, in.PackHash, in.ConfigHash) ||
 		servesFor(in.Prior, in.PackHash, in.ConfigHash) {
-		return appendStagedUnchanged(served, in)
+		return appendStagedUnchanged(served, in), nil
 	}
 
 	stagedAction := deploy.ActionCreate
@@ -125,7 +129,7 @@ func candidateChanges(in *planInput) []deploy.ResourceChange {
 		stagedText = fmt.Sprintf("Replace staged version %s with the new version; the endpoint does not move",
 			in.Prior.StagedVersion.Version)
 	}
-	changes := []deploy.ResourceChange{
+	changes = []deploy.ResourceChange{
 		{
 			Type:   ResTypeAgentVersion,
 			Name:   in.AgentName,
@@ -139,25 +143,36 @@ func candidateChanges(in *planInput) []deploy.ResourceChange {
 			Detail: stagedText,
 		},
 	}
-	return append(changes, served...)
+	return append(changes, served...), nil
 }
 
 // promoteChanges plans serving the staged version. It creates no version.
 func promoteChanges(in *planInput) (changes []deploy.ResourceChange, warnings []string) {
-	if stagedFor(in.Prior, in.PackHash, in.ConfigHash) {
-		return []deploy.ResourceChange{{
-			Type:   ResTypeServedVersion,
-			Name:   servedVersionName,
-			Action: deploy.ActionUpdate,
-			Detail: fmt.Sprintf("Point the endpoint at staged version %s at 100%% traffic",
-				in.Prior.StagedVersion.Version),
-		}}, nil
-	}
 	if servesFor(in.Prior, in.PackHash, in.ConfigHash) {
 		served, _ := servedUnchanged(in)
-		return []deploy.ResourceChange{served}, nil
+		return appendStagedUnchanged([]deploy.ResourceChange{served}, in), nil
 	}
-	return appendStagedUnchanged(nil, in), []string{promoteRefusal(in.Prior).Error()}
+	if stagedFor(in.Prior, in.PackHash, in.ConfigHash) {
+		staged := in.Prior.StagedVersion.Version
+		return []deploy.ResourceChange{
+			{
+				Type:   ResTypeServedVersion,
+				Name:   servedVersionName,
+				Action: deploy.ActionUpdate,
+				Detail: fmt.Sprintf("Point the endpoint at staged version %s at 100%% traffic", staged),
+			},
+			{
+				Type:   ResTypeStagedVersion,
+				Name:   stagedVersionName,
+				Action: deploy.ActionUpdate,
+				Detail: fmt.Sprintf("Version %s becomes the served version; nothing stays staged", staged),
+			},
+		}, nil
+	}
+	if served, ok := servedUnchanged(in); ok {
+		changes = append(changes, served)
+	}
+	return appendStagedUnchanged(changes, in), []string{promoteRefusal(in.Prior).Error()}
 }
 
 // servedUnchanged reports the version the endpoint keeps serving, if any.

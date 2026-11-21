@@ -42,6 +42,13 @@ func applyCandidate(
 	ctx context.Context, client foundryClient, in *applyInput,
 	prior, state *State, report *adaptersdk.ProgressReporter,
 ) (*State, error) {
+	if state.ServedVersion == "" {
+		// With nothing served there is no version for the endpoint to stay
+		// on, and what the platform routes to before the first selector patch
+		// is not something this adapter controls.
+		return prior, fmt.Errorf("rollout_stage %s: %w; deploy with rollout_stage %s first",
+			RolloutCandidate, ErrNothingServed, RolloutLive)
+	}
 	if stagedFor(state, in.PackHash, in.ConfigHash) {
 		reportProgress(report, fmt.Sprintf(
 			"Version %s is already staged for this pack", state.StagedVersion.Version), progressServed)
@@ -94,20 +101,24 @@ func applyPromote(
 	ctx context.Context, client foundryClient, in *applyInput,
 	prior, state *State, report *adaptersdk.ProgressReporter,
 ) (*State, error) {
+	// Served first: a live apply may have served this pack since it was
+	// staged, and promoting the older staged version would move the endpoint
+	// backwards to a version that runs the same thing.
+	if servesFor(state, in.PackHash, in.ConfigHash) {
+		reportProgress(report, fmt.Sprintf(
+			"Version %s already serves this pack", state.ServedVersion), progressServed)
+		return state, nil
+	}
 	if !stagedFor(state, in.PackHash, in.ConfigHash) {
-		if servesFor(state, in.PackHash, in.ConfigHash) {
-			reportProgress(report, fmt.Sprintf(
-				"Version %s already serves this pack", state.ServedVersion), progressServed)
-			return state, nil
-		}
 		return prior, promoteRefusal(state)
 	}
 
 	staged := *state.StagedVersion
 	if err := confirmStaged(ctx, client, in.AgentName, staged.Version); err != nil {
-		if errors.Is(err, ErrVersionNotFound) {
-			// The record points at nothing. Dropping it lets the next
-			// candidate apply stage a version instead of reporting this one.
+		if errors.Is(err, ErrVersionNotFound) || errors.Is(err, ErrVersionFailed) {
+			// The record points at nothing that will ever run. Dropping it
+			// lets the next candidate apply stage a version instead of
+			// reporting this one as already staged.
 			state.StagedVersion = nil
 			return state, err
 		}
@@ -147,7 +158,12 @@ func confirmStaged(ctx context.Context, client foundryClient, agent, version str
 		if versions[i].Version != version {
 			continue
 		}
-		if versions[i].Status != VersionStatusActive {
+		switch versions[i].Status {
+		case VersionStatusActive:
+		case VersionStatusFailed, VersionStatusDeleting, VersionStatusDeleted:
+			return fmt.Errorf("staged version %q of agent %q is %s: %w; apply with rollout_stage %s to stage another",
+				version, agent, versions[i].Status, ErrVersionFailed, RolloutCandidate)
+		default:
 			return fmt.Errorf("agent %q version %q is %s: %w",
 				agent, version, versions[i].Status, ErrStagedNotActive)
 		}

@@ -128,19 +128,18 @@ func applyAgent(
 	state.AdapterVersion = Version
 	state.StagedPackURI = in.StagedPackURI
 
-	// Promote never creates anything, the agent included: with no agent there
-	// is nothing staged to serve.
-	if in.Cfg.rolloutStage() == RolloutPromote {
+	// Neither staged stage creates the agent: promote has nothing staged
+	// without one, and candidate needs a served version to keep the endpoint on.
+	switch in.Cfg.rolloutStage() {
+	case RolloutPromote:
 		return applyPromote(ctx, client, in, prior, &state, report)
+	case RolloutCandidate:
+		return applyCandidate(ctx, client, in, prior, &state, report)
 	}
 
 	if ensureErr := ensureAgent(ctx, client, in, &state, report); ensureErr != nil {
 		// ensureAgent records nothing unless CreateAgent succeeded.
 		return prior, ensureErr
-	}
-
-	if in.Cfg.rolloutStage() == RolloutCandidate {
-		return applyCandidate(ctx, client, in, prior, &state, report)
 	}
 
 	if !versionNeeded(in, &state) {
@@ -183,6 +182,11 @@ func applyAgent(
 	}
 
 	markServed(&state, version.Version, in.PackHash, in.ConfigHash, in.Spec.Metadata[metaPackVersion])
+	// A version staged for the pack just served is redundant, and promoting it
+	// would move the endpoint back to an older version of the same thing.
+	if stagedFor(&state, in.PackHash, in.ConfigHash) {
+		state.StagedVersion = nil
+	}
 	reportServed(report, in, version.Version)
 	return &state, nil
 }

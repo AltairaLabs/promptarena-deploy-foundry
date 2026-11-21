@@ -76,6 +76,8 @@ opening a session on it (see
 [Invoke a deployed agent](/how-to/invoke/#a-session-on-a-specific-version)),
 then applies the same pack and config with `promote`.
 
+- **A candidate needs a served version.** On an agent that serves nothing yet,
+  a candidate apply is refused before anything is created: deploy `live` first.
 - **Both stages are idempotent.** A candidate for a pack and config that are
   already staged, or already served, creates nothing. A promote whose version
   is already served succeeds and does nothing.
@@ -83,13 +85,19 @@ then applies the same pack and config with `promote`.
   with a different pack or config is refused, so the state never records hashes
   the served version was not built from. A promote with nothing staged is
   refused too. Neither changes the endpoint.
-- **A staged version deleted from the platform** fails the promote and is
-  dropped from state, so the next candidate apply stages a new one.
+- **A staged version that is still `creating`** is refused and kept, so the
+  promote can be run again once it is active. **One that failed, or was
+  deleted from the platform,** fails the promote and is dropped from state, so
+  the next candidate apply stages a new one.
 - **`rollout_stage` is not in the config hash.** Moving from `candidate` to
   `promote` is not a config change.
 - **A live apply ignores the staged version.** It compares the pack and config
   against the *served* version only, so a pack that is staged but not served
-  still creates and serves a version. The staged record is kept.
+  still creates and serves a version. A staged record for that same pack is
+  then dropped; one for another pack is kept.
+- **A promote never moves backwards.** When the served version already runs
+  this pack and config, promote does nothing, even with a version staged for
+  them.
 - The adapter deletes no versions. Neither the served nor the staged version is
   ever removed, short of destroying the agent.
 

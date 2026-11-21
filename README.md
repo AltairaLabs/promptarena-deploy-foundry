@@ -246,8 +246,9 @@ Every version carries `pack_version` metadata set to the compiled pack's
 records it as the staged version. A later apply of the same pack and config
 with `rollout_stage: promote` creates nothing and points the endpoint at it,
 after checking the platform's version list that it exists and is active. Both
-are idempotent, and promote refuses a staged version built from a different
-pack or config. Sessions stay on the version they were created on, so a
+are idempotent; candidate needs a version already served, and promote refuses a
+staged version built from a different pack or config, and does nothing when the
+served version already runs the pack. Sessions stay on the version they were created on, so a
 staged version can be tried in a session created on it with
 `version_indicator: {type: version_ref, agent_version: "<n>"}` (see
 [Invoke](docs/src/content/docs/how-to/invoke.md#a-session-on-a-specific-version)).
